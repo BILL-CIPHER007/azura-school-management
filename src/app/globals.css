@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 210 33% 98%;
+  --foreground: 216 29% 16%;
+  --card: 0 0% 100%;
+  --card-foreground: 216 29% 16%;
+  --primary: 207 72% 39%;
+  --primary-foreground: 0 0% 100%;
+  --school-primary: 207 72% 39%;
+  --school-primary-foreground: 0 0% 100%;
+  --muted: 210 25% 94%;
+  --muted-foreground: 215 14% 43%;
+  --accent: 156 45% 92%;
+  --accent-foreground: 160 51% 21%;
+  --school-accent: 156 45% 92%;
+  --school-accent-foreground: 160 51% 21%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 214 22% 88%;
+  --input: 214 22% 88%;
+  --ring: 207 72% 39%;
+  --radius: 0.5rem;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+@layer components {
+  .page-shell {
+    @apply mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8;
+  }
+
+  .table-wrap {
+    @apply overflow-hidden rounded-lg border bg-card shadow-sm;
+  }
+
+  .data-table {
+    @apply w-full min-w-[720px] border-collapse text-sm;
+  }
+
+  .data-table th {
+    @apply bg-muted px-4 py-3 text-left font-medium text-muted-foreground;
+  }
+
+  .data-table td {
+    @apply border-t px-4 py-3 align-middle;
+  }
+}

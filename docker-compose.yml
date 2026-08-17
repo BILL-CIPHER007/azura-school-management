@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: colegio_horizonte
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d colegio_horizonte"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/colegio_horizonte?schema=public
+      AUTH_SECRET: troque-este-segredo-em-producao
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      DEMO_PASSWORD: demo123
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
