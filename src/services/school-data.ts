@@ -1,4 +1,4 @@
-import type { AnnouncementAudience, AttendanceStatus, EnrollmentStatus } from "@prisma/client";
+import type { AnnouncementAudience, AttendanceStatus, EnrollmentStatus, UserStatus } from "@prisma/client";
 import { schoolConfig } from "@/config/school";
 import { isAttendanceBelowMinimum } from "@/lib/academic-rules";
 import { prisma } from "@/lib/prisma";
@@ -150,6 +150,43 @@ export async function listStudents({
   });
 }
 
+export async function listEnrollmentsAdmin({
+  schoolId,
+  search,
+  classroomId,
+  status
+}: {
+  schoolId: string;
+  search?: string;
+  classroomId?: string;
+  status?: EnrollmentStatus;
+}) {
+  return prisma.enrollment.findMany({
+    where: {
+      schoolId,
+      classroomId: classroomId || undefined,
+      status: status || undefined,
+      OR: search
+        ? [
+            { registration: { contains: search, mode: "insensitive" } },
+            { student: { fullName: { contains: search, mode: "insensitive" } } }
+          ]
+        : undefined
+    },
+    include: {
+      student: {
+        include: {
+          guardians: { include: { guardian: true } }
+        }
+      },
+      classroom: true,
+      academicYear: true
+    },
+    orderBy: { enrolledAt: "desc" },
+    take: 80
+  });
+}
+
 export async function getStudentDetails(schoolId: string, studentId: string) {
   return prisma.student.findFirst({
     where: { id: studentId, schoolId },
@@ -182,17 +219,56 @@ export async function getEnrollmentOptions(schoolId: string) {
   return { guardians, classrooms, academicYears };
 }
 
-export async function listGuardians(schoolId: string) {
+export async function listGuardians(
+  schoolId: string,
+  filters: { search?: string; relation?: string } = {}
+) {
   return prisma.guardian.findMany({
-    where: { schoolId },
+    where: {
+      schoolId,
+      fullName: filters.search ? { contains: filters.search, mode: "insensitive" } : undefined,
+      relation: filters.relation || undefined
+    },
     include: { students: { include: { student: true } } },
     orderBy: { fullName: "asc" }
   });
 }
 
-export async function listTeachers(schoolId: string) {
+export async function getGuardianDetails(schoolId: string, guardianId: string) {
+  return prisma.guardian.findFirst({
+    where: { id: guardianId, schoolId },
+    include: {
+      user: true,
+      students: {
+        include: {
+          student: {
+            include: {
+              enrollments: {
+                include: {
+                  classroom: true,
+                  academicYear: true
+                },
+                orderBy: { enrolledAt: "desc" }
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+export async function listTeachers(
+  schoolId: string,
+  filters: { search?: string; subjectId?: string; status?: UserStatus } = {}
+) {
   return prisma.teacher.findMany({
-    where: { schoolId },
+    where: {
+      schoolId,
+      fullName: filters.search ? { contains: filters.search, mode: "insensitive" } : undefined,
+      status: filters.status || undefined,
+      assignments: filters.subjectId ? { some: { subjectId: filters.subjectId } } : undefined
+    },
     include: {
       assignments: {
         include: { subject: true, classroom: true }
@@ -261,6 +337,50 @@ export async function listSubjects(schoolId: string) {
   });
 }
 
+export async function getAdminAttentionStudents(schoolId: string) {
+  const enrollments = await prisma.enrollment.findMany({
+    where: { schoolId, status: "ACTIVE" },
+    include: {
+      student: true,
+      classroom: true,
+      grades: { include: { subject: true } },
+      attendances: { select: { status: true } }
+    },
+    orderBy: { enrolledAt: "desc" },
+    take: 120
+  });
+
+  return enrollments
+    .map((enrollment) => {
+      const averageGrade = average(enrollment.grades.map((grade) => grade.average));
+      const attendanceRate = enrollment.attendances.length
+        ? (enrollment.attendances.filter((attendance) => attendance.status === "PRESENT").length /
+            enrollment.attendances.length) *
+          100
+        : 0;
+      const situation = gradeSituation(averageGrade, attendanceRate);
+      const reasons = [
+        isAttendanceBelowMinimum(attendanceRate) ? "Frequência baixa" : null,
+        situation === "Recuperação" ? "Em recuperação" : null,
+        situation === "Reprovado" ? "Risco acadêmico" : null
+      ].filter(Boolean) as string[];
+
+      return {
+        id: enrollment.id,
+        studentId: enrollment.studentId,
+        studentName: enrollment.student.fullName,
+        registration: enrollment.registration,
+        classroomName: enrollment.classroom.name,
+        averageGrade,
+        attendanceRate,
+        situation,
+        reasons
+      };
+    })
+    .filter((item) => item.reasons.length > 0)
+    .slice(0, 8);
+}
+
 export async function listAnnouncementsAdmin(schoolId: string) {
   return prisma.announcement.findMany({
     where: { schoolId },
@@ -288,6 +408,7 @@ export async function getSchoolSettings(schoolId: string) {
     }),
     prisma.auditLog.findMany({
       where: { schoolId },
+      include: { user: true },
       orderBy: { createdAt: "desc" },
       take: 10
     })

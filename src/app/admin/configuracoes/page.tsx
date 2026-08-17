@@ -1,6 +1,7 @@
-import { PageHeader } from "@/components/dashboard";
+import { AdminPageHeader, AdminSection, DefinitionList } from "@/components/admin/admin-ui";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { schoolConfig } from "@/config/school";
+import { auditActionLabel, auditEntityLabel } from "@/lib/admin-labels";
 import { requireSession } from "@/lib/auth";
 import { formatDate } from "@/lib/utils";
 import { getSchoolSettings } from "@/services/school-data";
@@ -13,43 +14,73 @@ export default async function SettingsPage() {
 
   return (
     <main className="page-shell">
-      <PageHeader title="Configurações" description="Estrutura da escola, ano letivo, períodos e auditoria básica." />
+      <AdminPageHeader
+        title="Configurações"
+        description="Escola, ano letivo, regras acadêmicas e auditoria básica."
+        breadcrumbs={[{ label: "Admin", href: "/admin/dashboard" }, { label: "Configurações" }]}
+      />
+
       <section className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Escola</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <p><strong>Nome:</strong> {settings.school.name}</p>
-            <p><strong>Slug:</strong> {settings.school.slug}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Ano letivo e períodos</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-2">
-            {settings.periods.map((period) => (
-              <div key={period.id} className="flex items-center justify-between rounded-md border p-3 text-sm">
-                <span>{period.academicYear.year} · {period.name}</span>
-                <Badge>{formatDate(period.startsAt)} até {formatDate(period.endsAt)}</Badge>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+        <AdminSection title="Escola" description="Dados da instalação atual e camada de personalização.">
+          <DefinitionList
+            items={[
+              { label: "Nome no banco", value: settings.school.name },
+              { label: "Nome configurado", value: schoolConfig.name },
+              { label: "Nome curto", value: schoolConfig.shortName },
+              { label: "Sigla", value: schoolConfig.initials },
+              { label: "Slug", value: settings.school.slug }
+            ]}
+          />
+        </AdminSection>
+
+        <AdminSection title="Regras acadêmicas" description="Valores de leitura vindos da configuração central.">
+          <DefinitionList
+            items={[
+              { label: "Ano letivo padrão", value: schoolConfig.academic.academicYear },
+              { label: "Sistema de períodos", value: schoolConfig.academic.gradingSystem },
+              { label: "Média mínima", value: schoolConfig.academic.passingGrade.toFixed(1) },
+              { label: "Nota de recuperação", value: schoolConfig.academic.recoveryGrade.toFixed(1) },
+              { label: "Frequência mínima", value: `${schoolConfig.academic.minimumAttendance}%` }
+            ]}
+          />
+        </AdminSection>
       </section>
-      <Card>
-        <CardHeader>
-          <CardTitle>Auditoria básica</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-2">
-          {settings.auditLogs.map((log) => (
-            <div key={log.id} className="rounded-md border p-3 text-sm">
-              <strong>{log.action}</strong> · {log.entity} · {formatDate(log.createdAt)}
+
+      <AdminSection title="Ano letivo e períodos" description="Períodos persistidos no banco de dados.">
+        <div className="grid gap-2 md:grid-cols-2">
+          {settings.periods.map((period) => (
+            <div key={period.id} className="flex items-center justify-between gap-3 rounded-md border p-3 text-sm">
+              <span>{period.academicYear.year} · {period.name}</span>
+              <Badge>{formatDate(period.startsAt)} até {formatDate(period.endsAt)}</Badge>
             </div>
           ))}
-        </CardContent>
-      </Card>
+        </div>
+      </AdminSection>
+
+      <AdminSection title="Auditoria" description="Últimas ações registradas no escopo da escola.">
+        <div className="overflow-x-auto">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Ação</th>
+                <th>Usuário</th>
+                <th>Entidade</th>
+                <th>Data</th>
+              </tr>
+            </thead>
+            <tbody>
+              {settings.auditLogs.map((log) => (
+                <tr key={log.id}>
+                  <td className="font-medium">{auditActionLabel(log.action)}</td>
+                  <td>{log.user?.name ?? "Sistema"}</td>
+                  <td>{auditEntityLabel(log.entity)}</td>
+                  <td>{formatDate(log.createdAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </AdminSection>
     </main>
   );
 }

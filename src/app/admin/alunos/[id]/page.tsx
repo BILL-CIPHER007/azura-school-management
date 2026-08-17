@@ -1,9 +1,18 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { PageHeader, ProgressBar } from "@/components/dashboard";
+import { AdminMetric, AdminPageHeader, AdminSection, DefinitionList } from "@/components/admin/admin-ui";
+import { ProgressBar } from "@/components/dashboard";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import {
+  academicSituationTone,
+  attendanceStatusLabel,
+  enrollmentStatusLabel,
+  enrollmentStatusTone,
+  shiftLabel
+} from "@/lib/admin-labels";
 import { requireSession } from "@/lib/auth";
+import { isPassingGrade } from "@/lib/academic-rules";
 import { formatDate, formatPercent } from "@/lib/utils";
 import { getStudentDetails, summarizeEnrollment } from "@/services/school-data";
 
@@ -20,154 +29,171 @@ export default async function StudentDetailsPage({ params }: { params: Promise<{
 
   return (
     <main className="page-shell">
-      <PageHeader
+      <AdminPageHeader
         title={student.fullName}
-        description="Dados pessoais, acadêmicos, responsáveis, notas e frequência."
+        description="Perfil administrativo com dados pessoais, matrícula, responsáveis, desempenho e frequência."
+        breadcrumbs={[
+          { label: "Admin", href: "/admin/dashboard" },
+          { label: "Alunos", href: "/admin/alunos" },
+          { label: student.fullName }
+        ]}
         action={
-          <ButtonLink href="/admin/alunos">Voltar</ButtonLink>
+          <>
+            <Button asChild variant="outline">
+              <Link href="/admin/alunos">Voltar</Link>
+            </Button>
+            <Button variant="secondary" disabled>Editar aluno</Button>
+            <Button variant="secondary" disabled>Editar matrícula</Button>
+          </>
         }
       />
 
-      <section className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Turma atual</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-semibold">
-            {currentEnrollment?.classroom.name ?? "-"}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Média geral</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-semibold">
-            {summary.averageGrade.toFixed(1)}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Frequência</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <strong className="text-2xl">{formatPercent(summary.attendanceRate)}</strong>
-            <ProgressBar value={summary.attendanceRate} className="mt-2" />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Situação</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Badge variant={summary.situation === "Aprovado" ? "success" : "warning"}>
-              {summary.situation}
-            </Badge>
-          </CardContent>
-        </Card>
+      <section className="grid gap-3 md:grid-cols-4">
+        <AdminMetric label="Matrícula" value={currentEnrollment?.registration ?? "-"} detail={currentEnrollment?.classroom.name ?? "Sem turma"} />
+        <AdminMetric label="Média geral" value={summary.averageGrade.toFixed(1)} detail={summary.situation} tone={academicSituationTone(summary.situation)} />
+        <AdminMetric label="Frequência" value={formatPercent(summary.attendanceRate)} detail={`${summary.absences} faltas`} />
+        <AdminMetric
+          label="Situação"
+          value={enrollmentStatusLabel(currentEnrollment?.status)}
+          detail={currentEnrollment?.academicYear.year.toString() ?? "Sem matrícula"}
+          tone={enrollmentStatusTone(currentEnrollment?.status)}
+        />
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Dados pessoais</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <Info label="CPF" value={student.cpf} />
-            <Info label="Nascimento" value={student.birthDate ? formatDate(student.birthDate) : "-"} />
-            <Info label="Sexo" value={student.gender} />
-            <Info label="Telefone" value={student.phone} />
-            <Info label="E-mail" value={student.email} />
-            <Info label="Endereço" value={student.address} />
-          </CardContent>
-        </Card>
+      <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
+        <AdminSection title="Dados pessoais" description="Informações cadastrais usadas pela secretaria.">
+          <DefinitionList
+            items={[
+              { label: "CPF", value: student.cpf },
+              { label: "Nascimento", value: student.birthDate ? formatDate(student.birthDate) : "-" },
+              { label: "Sexo", value: student.gender },
+              { label: "Telefone", value: student.phone },
+              { label: "E-mail", value: student.email },
+              { label: "Endereço", value: student.address }
+            ]}
+          />
+        </AdminSection>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Responsáveis</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-2">
-            {student.guardians.map((item) => (
-              <div key={item.guardianId} className="rounded-lg border p-4">
+        <AdminSection title="Matrícula atual" description="Vínculo acadêmico ativo mais recente.">
+          <DefinitionList
+            items={[
+              { label: "Turma", value: currentEnrollment?.classroom.name },
+              { label: "Série", value: currentEnrollment?.classroom.gradeLevel },
+              { label: "Turno", value: currentEnrollment ? shiftLabel(currentEnrollment.classroom.shift) : "-" },
+              { label: "Ano letivo", value: currentEnrollment?.academicYear.year },
+              { label: "Data da matrícula", value: currentEnrollment ? formatDate(currentEnrollment.enrolledAt) : "-" },
+              {
+                label: "Status",
+                value: (
+                  <Badge variant={enrollmentStatusTone(currentEnrollment?.status)}>
+                    {enrollmentStatusLabel(currentEnrollment?.status)}
+                  </Badge>
+                )
+              }
+            ]}
+          />
+        </AdminSection>
+      </section>
+
+      <AdminSection title="Responsáveis" description="Contatos e vínculos familiares do aluno.">
+        <div className="grid gap-3 md:grid-cols-2">
+          {student.guardians.map((item) => (
+            <Link
+              key={item.guardianId}
+              href={`/admin/responsaveis/${item.guardianId}`}
+              className="rounded-lg border p-4 hover:bg-muted"
+            >
+              <div className="flex items-center justify-between gap-3">
                 <strong>{item.guardian.fullName}</strong>
-                <p className="text-sm text-muted-foreground">{item.guardian.relation}</p>
-                <p className="mt-2 text-sm">{item.guardian.email}</p>
-                <p className="text-sm">{item.guardian.phone}</p>
+                {item.isPrimary ? <Badge variant="info">Principal</Badge> : null}
               </div>
-            ))}
-          </CardContent>
-        </Card>
-      </section>
+              <p className="text-sm text-muted-foreground">{item.guardian.relation}</p>
+              <p className="mt-2 text-sm">{item.guardian.email ?? "-"}</p>
+              <p className="text-sm">{item.guardian.phone ?? "-"}</p>
+            </Link>
+          ))}
+        </div>
+      </AdminSection>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Notas</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <AdminSection id="desempenho" title="Desempenho" description="Notas registradas por disciplina e período.">
+        <div className="overflow-x-auto">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Disciplina</th>
+                <th>Período</th>
+                <th>AV1</th>
+                <th>AV2</th>
+                <th>Trabalho</th>
+                <th>Média</th>
+              </tr>
+            </thead>
+            <tbody>
+              {currentEnrollment?.grades.map((grade) => (
+                <tr key={grade.id}>
+                  <td>{grade.subject.name}</td>
+                  <td>{grade.academicPeriod.name}</td>
+                  <td>{grade.av1.toFixed(1)}</td>
+                  <td>{grade.av2.toFixed(1)}</td>
+                  <td>{grade.assignment.toFixed(1)}</td>
+                  <td>
+                    <Badge variant={isPassingGrade(grade.average) ? "success" : "warning"}>{grade.average.toFixed(1)}</Badge>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </AdminSection>
+
+      <AdminSection id="frequencia" title="Frequência" description="Resumo e últimos registros de chamada.">
+        <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
+          <div className="rounded-lg border p-4">
+            <strong className="text-3xl">{formatPercent(summary.attendanceRate)}</strong>
+            <ProgressBar value={summary.attendanceRate} className="mt-3" />
+            <p className="mt-2 text-sm text-muted-foreground">{summary.absences} faltas registradas</p>
+          </div>
           <div className="overflow-x-auto">
-            <table className="data-table">
+            <table className="data-table min-w-[560px]">
               <thead>
                 <tr>
+                  <th>Data</th>
                   <th>Disciplina</th>
-                  <th>Período</th>
-                  <th>AV1</th>
-                  <th>AV2</th>
-                  <th>Trabalho</th>
-                  <th>Média</th>
+                  <th>Status</th>
                 </tr>
               </thead>
               <tbody>
-                {currentEnrollment?.grades.map((grade) => (
-                  <tr key={grade.id}>
-                    <td>{grade.subject.name}</td>
-                    <td>{grade.academicPeriod.name}</td>
-                    <td>{grade.av1.toFixed(1)}</td>
-                    <td>{grade.av2.toFixed(1)}</td>
-                    <td>{grade.assignment.toFixed(1)}</td>
-                    <td>{grade.average.toFixed(1)}</td>
+                {currentEnrollment?.attendances.slice(0, 12).map((attendance) => (
+                  <tr key={attendance.id}>
+                    <td>{formatDate(attendance.date)}</td>
+                    <td>{attendance.subject.name}</td>
+                    <td>{attendanceStatusLabel(attendance.status)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </AdminSection>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Histórico de matrícula</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-2">
+      <AdminSection title="Histórico de matrícula">
+        <div className="grid gap-3 md:grid-cols-2">
           {student.enrollments.map((enrollment) => (
             <div key={enrollment.id} className="rounded-lg border p-4">
-              <strong>{enrollment.registration}</strong>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <strong>{enrollment.registration}</strong>
+                <Badge variant={enrollmentStatusTone(enrollment.status)}>
+                  {enrollmentStatusLabel(enrollment.status)}
+                </Badge>
+              </div>
               <p className="text-sm text-muted-foreground">
                 {enrollment.classroom.name} · {enrollment.academicYear.year}
               </p>
               <p className="mt-1 text-sm">Matrícula em {formatDate(enrollment.enrolledAt)}</p>
             </div>
           ))}
-        </CardContent>
-      </Card>
+        </div>
+      </AdminSection>
     </main>
-  );
-}
-
-function Info({ label, value }: { label: string; value?: string | null }) {
-  return (
-    <p className="flex justify-between gap-4 border-b py-2 last:border-b-0">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="text-right font-medium">{value || "-"}</span>
-    </p>
-  );
-}
-
-function ButtonLink({ href, children }: { href: string; children: React.ReactNode }) {
-  return (
-    <Link
-      href={href}
-      className="inline-flex h-10 items-center justify-center rounded-md border bg-background px-4 text-sm font-medium hover:bg-muted"
-    >
-      {children}
-    </Link>
   );
 }
