@@ -1,6 +1,6 @@
-# Sistema de Gestão Escolar
+# Colégio Aprovação | Sistema de Gestão Escolar
 
-Protótipo funcional do sistema de gestão escolar do **Colégio Horizonte**, construído para demonstração comercial e validação dos fluxos acadêmicos principais: matrícula, alunos, responsáveis, professores, turmas, disciplinas, notas, frequência, boletim, comunicados e calendário.
+Protótipo funcional do sistema de gestão escolar do **Colégio Aprovação**, construído para demonstração comercial e validação dos fluxos acadêmicos principais: matrícula, alunos, responsáveis, professores, turmas, disciplinas, notas, frequência, boletim, comunicados e calendário.
 
 ## Tecnologias
 
@@ -40,16 +40,16 @@ npm run prisma:migrate
 npm run prisma:seed
 ```
 
-O seed cria a escola **Colégio Horizonte**, 4 turmas, 6 disciplinas, 5 professores, mais de 30 alunos, responsáveis, notas, frequências, comunicados e eventos.
+O seed cria a escola **Colégio Aprovação**, 4 turmas, 6 disciplinas, 5 professores, mais de 30 alunos, responsáveis, notas, frequências, comunicados e eventos.
 
 ## Usuários de Demonstração
 
 Senha padrão de desenvolvimento: valor de `DEMO_PASSWORD`, ou `demo123` se não estiver definido.
 
-- Administrador: `admin@colegiohorizonte.com`
-- Professor: `professor@colegiohorizonte.com`
-- Aluno: `aluno@colegiohorizonte.com`
-- Responsável: `responsavel@colegiohorizonte.com`
+- Administrador: `admin@demo.aprovacao.local`
+- Professor: `professor@demo.aprovacao.local`
+- Aluno: `aluno@demo.aprovacao.local`
+- Responsável: `responsavel@demo.aprovacao.local`
 
 ## Execução
 

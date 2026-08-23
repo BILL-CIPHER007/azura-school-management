@@ -1,14 +1,14 @@
 import { BookOpenCheck, ClipboardCheck, GraduationCap, NotebookTabs } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
 import { StudentSwitcher } from "@/components/guardian/student-switcher";
 import { GuardianMetric, GuardianPageHeader, GuardianSection, GuardianStatusBadge } from "@/components/guardian/guardian-ui";
 import { requireSession } from "@/lib/auth";
-import { buildGuardianGradeRows } from "@/lib/guardian-academics";
+import { isPassingVisibleGrade } from "@/lib/academic-rules";
+import { buildGradeRows } from "@/lib/student-academics";
 import { guardianFirstName, guardianShiftLabel } from "@/lib/guardian-labels";
 import { formatPercent } from "@/lib/utils";
 import { getGuardianPortal, summarizeEnrollment } from "@/services/school-data";
+import { GuardianReportFilters } from "./guardian-report-filters";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +20,9 @@ export default async function GuardianReportPage({
   const query = await searchParams;
   const session = await requireSession(["RESPONSAVEL"]);
   const portal = await getGuardianPortal(session.schoolId, session.id, query.studentId);
-  const summary = summarizeEnrollment(portal.enrollment);
+  const now = new Date();
+  const academicYearEnded = portal.enrollment ? portal.enrollment.academicYear.endsAt < now : false;
+  const summary = summarizeEnrollment(portal.enrollment, { isFinal: academicYearEnded });
   const allGrades = portal.enrollment?.grades ?? [];
   const years = [
     ...new Set(
@@ -38,7 +40,9 @@ export default async function GuardianReportPage({
         .sort(([, a], [, b]) => a.sortOrder - b.sortOrder)
     ).values()
   ];
-  const selectedPeriod = query.periodo ?? "todos";
+  const requestedPeriod = query.periodo ?? "todos";
+  const selectedPeriod =
+    requestedPeriod === "todos" || periods.some((period) => period.id === requestedPeriod) ? requestedPeriod : "todos";
   const visiblePeriods =
     selectedPeriod === "todos" ? periods : periods.filter((period) => period.id === selectedPeriod);
   const filteredGrades = allGrades.filter((grade) => {
@@ -46,12 +50,14 @@ export default async function GuardianReportPage({
     const byPeriod = selectedPeriod === "todos" || grade.academicPeriod.id === selectedPeriod;
     return byYear && byPeriod;
   });
-  const rows = buildGuardianGradeRows(filteredGrades, summary.attendanceRate);
+  const selectedContextEnded =
+    selectedPeriod === "todos" ? academicYearEnded : visiblePeriods.length > 0 && visiblePeriods.every((period) => period.endsAt < now);
+  const rows = buildGradeRows(filteredGrades, summary.attendanceRate, { isFinal: selectedContextEnded });
   const classroom = portal.enrollment?.classroom;
 
   return (
-    <main className="page-shell">
-      <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+    <main className="guardian-page">
+      <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
         <GuardianPageHeader
           title="Boletim"
           description={`Notas e situação acadêmica de ${guardianFirstName(portal.selectedStudent?.fullName ?? "aluno")}.`}
@@ -61,34 +67,32 @@ export default async function GuardianReportPage({
       </div>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <GuardianMetric label="Média geral" value={summary.averageGrade.toFixed(1)} icon={NotebookTabs} />
-        <GuardianMetric label="Frequência" value={formatPercent(summary.attendanceRate)} icon={ClipboardCheck} />
-        <GuardianMetric label="Disciplinas" value={summary.subjectAverages.length} icon={BookOpenCheck} />
-        <GuardianMetric label="Situação" value={summary.situation} icon={GraduationCap} />
+        <GuardianMetric label="Média geral" value={summary.averageGrade.toFixed(1)} icon={NotebookTabs} tone="primary" />
+        <GuardianMetric label="Frequência" value={formatPercent(summary.attendanceRate)} icon={ClipboardCheck} tone="success" />
+        <GuardianMetric label="Disciplinas" value={summary.subjectAverages.length} icon={BookOpenCheck} tone="info" />
+        <GuardianMetric
+          label="Situação"
+          value={summary.situation}
+          icon={GraduationCap}
+          tone={summary.situation === "Aprovado" || summary.situation === "Cursando" ? "success" : "warning"}
+          valueClassName="overflow-visible whitespace-normal text-2xl leading-tight text-clip"
+        />
       </section>
 
-      <GuardianSection title="Filtros">
-        <form className="grid gap-3 sm:grid-cols-[180px_220px_auto]" action="/responsavel/boletim">
-          {portal.selectedStudent ? <input type="hidden" name="studentId" value={portal.selectedStudent.id} /> : null}
-          <Select name="ano" defaultValue={selectedYear}>
-            {years.map((year) => (
-              <option key={year} value={year}>{year}</option>
-            ))}
-          </Select>
-          <Select name="periodo" defaultValue={selectedPeriod}>
-            <option value="todos">Todos os bimestres</option>
-            {periods.map((period) => (
-              <option key={period.id} value={period.id}>{period.name}</option>
-            ))}
-          </Select>
-          <Button type="submit" variant="secondary">Aplicar filtros</Button>
-        </form>
+      <GuardianSection title="Filtros" description="Consulte o boletim por ano letivo e período.">
+        <GuardianReportFilters
+          studentId={portal.selectedStudent?.id}
+          years={years}
+          periods={periods.map((period) => ({ id: period.id, name: period.name }))}
+          selectedYear={selectedYear}
+          selectedPeriod={selectedPeriod}
+        />
       </GuardianSection>
 
-      <GuardianSection title="Tabela do boletim" className="overflow-hidden">
+      <GuardianSection title="Tabela do boletim" className="overflow-hidden" bodyClassName="p-0">
         <div className="overflow-x-auto">
-          <table className="data-table">
-            <thead className="sticky top-14 z-10">
+          <table className="guardian-table">
+            <thead>
               <tr>
                 <th>Disciplina</th>
                 {visiblePeriods.map((period) => (
@@ -102,31 +106,34 @@ export default async function GuardianReportPage({
             <tbody>
               {rows.map((row) => (
                 <tr key={row.subject.id}>
-                  <td className="font-semibold text-slate-950">{row.subject.name}</td>
+                  <td className="font-semibold text-school-navy">{row.subject.name}</td>
                   {visiblePeriods.map((period) => {
                     const grade = row.values.find((item) => item.periodId === period.id)?.value;
                     return <td key={period.id}>{grade === null || grade === undefined ? "-" : grade.toFixed(1)}</td>;
                   })}
-                  <td className="font-semibold">{row.average.toFixed(1)}</td>
+                  <td>
+                    <span className="inline-flex items-center gap-2">
+                      <strong className={isPassingVisibleGrade(row.average) ? "text-school-navy" : "text-warning"}>
+                        {row.average.toFixed(1)}
+                      </strong>
+                      {!isPassingVisibleGrade(row.average) ? <Badge variant="warning">Abaixo da média</Badge> : null}
+                    </span>
+                  </td>
                   <td>{formatPercent(row.attendanceRate)}</td>
-                  <td><GuardianStatusBadge value={row.situation} /></td>
+                  <td>
+                    <GuardianStatusBadge value={row.situation} />
+                  </td>
                 </tr>
               ))}
               {!rows.length ? (
                 <tr>
                   <td colSpan={visiblePeriods.length + 4}>
-                    <div className="py-6 text-center text-sm text-muted-foreground">Nenhuma nota encontrada para os filtros selecionados.</div>
+                    <div className="py-8 text-center text-sm text-text-secondary">Nenhuma nota encontrada para os filtros selecionados.</div>
                   </td>
                 </tr>
               ) : null}
             </tbody>
           </table>
-        </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Badge variant="info">Cursando</Badge>
-          <Badge variant="success">Aprovado</Badge>
-          <Badge variant="warning">Recuperação</Badge>
-          <Badge variant="danger">Reprovado</Badge>
         </div>
       </GuardianSection>
     </main>

@@ -10,9 +10,7 @@ const protectedRoutes: Array<{ prefix: string; role: UserRole }> = [
 ];
 
 export async function proxy(request: NextRequest) {
-  const match = protectedRoutes.find((route) =>
-    request.nextUrl.pathname.startsWith(route.prefix)
-  );
+  const match = protectedRoutes.find((route) => request.nextUrl.pathname.startsWith(route.prefix));
   if (!match) return NextResponse.next();
 
   const session = await verifySession(request.cookies.get(SESSION_COOKIE)?.value);

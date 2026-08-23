@@ -1,11 +1,10 @@
 import Link from "next/link";
 import type { EnrollmentStatus } from "@prisma/client";
-import { Search } from "lucide-react";
-import { AdminEmptyState, AdminPageHeader, AdminToolbar, RowActions } from "@/components/admin/admin-ui";
+import { AdminEnrollmentFilters } from "@/app/admin/matriculas/admin-enrollment-filters";
+import { AdminEmptyState, AdminPageHeader, AdminToolbar } from "@/components/admin/admin-ui";
+import { RowActions } from "@/components/admin/row-actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import {
   enrollmentStatusLabel,
   enrollmentStatusTone,
@@ -48,28 +47,12 @@ export default async function EnrollmentsPage({
       />
 
       <AdminToolbar>
-        <form className="grid gap-3 md:grid-cols-[1fr_220px_190px_auto]">
-          <label className="relative">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-            <Input name="busca" placeholder="Buscar por aluno ou matrícula" defaultValue={params.busca} className="pl-9" />
-          </label>
-          <Select name="turma" defaultValue={params.turma ?? ""}>
-            <option value="">Todas as turmas</option>
-            {classrooms.map((classroom) => (
-              <option key={classroom.id} value={classroom.id}>
-                {classroom.name}
-              </option>
-            ))}
-          </Select>
-          <Select name="situacao" defaultValue={params.situacao ?? ""}>
-            <option value="">Todos os status</option>
-            <option value="ACTIVE">Ativa</option>
-            <option value="TRANSFERRED">Transferida</option>
-            <option value="COMPLETED">Concluída</option>
-            <option value="CANCELLED">Cancelada</option>
-          </Select>
-          <Button type="submit">Filtrar</Button>
-        </form>
+        <AdminEnrollmentFilters
+          classrooms={classrooms}
+          selectedSearch={params.busca}
+          selectedClassroom={params.turma}
+          selectedStatus={params.situacao}
+        />
       </AdminToolbar>
 
       <div className="table-wrap">
@@ -81,7 +64,7 @@ export default async function EnrollmentsPage({
                 <th>Matrícula</th>
                 <th>Turma</th>
                 <th>Ano letivo</th>
-                <th>Data</th>
+                <th>Data da matrícula</th>
                 <th>Status</th>
                 <th>Responsável</th>
                 <th>Ações</th>
@@ -124,7 +107,6 @@ export default async function EnrollmentsPage({
                       <RowActions
                         items={[
                           { label: "Ver aluno", href: `/admin/alunos/${enrollment.studentId}` },
-                          { label: "Editar matrícula", disabled: true },
                           { label: "Ver turma", href: `/admin/turmas/${enrollment.classroomId}` }
                         ]}
                       />
@@ -137,7 +119,10 @@ export default async function EnrollmentsPage({
         </div>
         {!enrollments.length ? (
           <div className="p-4">
-            <AdminEmptyState title="Nenhuma matrícula encontrada" description="Ajuste os filtros ou inicie uma nova matrícula." />
+            <AdminEmptyState
+              title="Nenhuma matrícula encontrada"
+              description="Tente ajustar a busca ou os filtros selecionados."
+            />
           </div>
         ) : null}
       </div>

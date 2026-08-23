@@ -10,8 +10,14 @@ export type SchoolBranding = {
 export type SchoolTheme = {
   primary: string;
   primaryForeground: string;
+  primaryHover: string;
+  primarySoft: string;
   accent: string;
   accentForeground: string;
+  navy: string;
+  blue700: string;
+  blue500: string;
+  blue100: string;
 };
 
 export type AcademicConfig = {
@@ -58,18 +64,17 @@ export type SchoolConfig = {
   demo: DemoConfig;
 };
 
-const schoolName = process.env.NEXT_PUBLIC_SCHOOL_NAME || "Escola Demonstrativa";
-const schoolShortName = process.env.NEXT_PUBLIC_SCHOOL_SHORT_NAME || "Escola Demo";
-const schoolInitials = process.env.NEXT_PUBLIC_SCHOOL_INITIALS || "ED";
+const schoolName = process.env.NEXT_PUBLIC_SCHOOL_NAME || "Colégio Aprovação";
+const schoolShortName = process.env.NEXT_PUBLIC_SCHOOL_SHORT_NAME || "Aprovação";
+const schoolInitials = process.env.NEXT_PUBLIC_SCHOOL_INITIALS || "CA";
 
 export const schoolConfig: SchoolConfig = {
   name: schoolName,
   shortName: schoolShortName,
   initials: schoolInitials,
-  description: "Portal acadêmico e gestão escolar em um só lugar.",
-  landingTitle: schoolName,
-  landingSubtitle:
-    "Acompanhe matrículas, turmas, notas, frequência e comunicação entre escola, professores, alunos e responsáveis.",
+  description: "Portal escolar integrado do Colégio Aprovação.",
+  landingTitle: `Bem-vindo ao ${schoolName}`,
+  landingSubtitle: "Gestão escolar, acompanhamento acadêmico e comunicação em um só lugar.",
   branding: {
     logo: "/branding/logo.svg",
     logoCompact: "/branding/logo-compact.svg",
@@ -77,10 +82,16 @@ export const schoolConfig: SchoolConfig = {
     favicon: "/branding/logo-compact.svg"
   },
   theme: {
-    primary: "207 72% 39%",
+    primary: "221 82% 47%",
     primaryForeground: "0 0% 100%",
-    accent: "156 45% 92%",
-    accentForeground: "160 51% 21%"
+    primaryHover: "220 83% 40%",
+    primarySoft: "220 100% 96%",
+    accent: "217 100% 96%",
+    accentForeground: "217 78% 20%",
+    navy: "217 78% 20%",
+    blue700: "217 74% 35%",
+    blue500: "219 77% 54%",
+    blue100: "217 100% 96%"
   },
   academic: {
     academicYear: 2026,
@@ -104,13 +115,13 @@ export const schoolConfig: SchoolConfig = {
     showDemoMetrics: true,
     badgeLabel: "Ambiente de demonstração",
     quickAccessEnabled: true,
-    emailDomain: "demo.escola.local",
+    emailDomain: "demo.aprovacao.local",
     passwordFallback: "demo123",
     users: {
-      ADMIN: "admin@demo.escola.local",
-      PROFESSOR: "professor@demo.escola.local",
-      ALUNO: "aluno@demo.escola.local",
-      RESPONSAVEL: "responsavel@demo.escola.local"
+      ADMIN: "admin@demo.aprovacao.local",
+      PROFESSOR: "professor@demo.aprovacao.local",
+      ALUNO: "aluno@demo.aprovacao.local",
+      RESPONSAVEL: "responsavel@demo.aprovacao.local"
     },
     metrics: [
       { value: "30+", label: "alunos na demo" },

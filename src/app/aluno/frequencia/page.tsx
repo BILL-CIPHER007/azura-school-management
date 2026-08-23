@@ -1,14 +1,14 @@
 import { BookOpenCheck, ClipboardCheck, FileWarning, ListChecks } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
 import { ProgressBar } from "@/components/dashboard";
-import { StudentMetric, StudentPageHeader, StudentSection } from "@/components/student/student-ui";
+import { StudentEmptyState, StudentMetric, StudentPageHeader, StudentSection } from "@/components/student/student-ui";
 import { requireSession } from "@/lib/auth";
+import { isAttendanceBelowMinimum } from "@/lib/academic-rules";
 import { summarizeAttendance } from "@/lib/student-academics";
 import { studentAttendanceLabel } from "@/lib/student-labels";
-import { formatDate, formatPercent } from "@/lib/utils";
+import { cn, formatDate, formatPercent } from "@/lib/utils";
 import { getStudentPortal } from "@/services/school-data";
+import { StudentAttendanceFilters } from "./student-attendance-filters";
 
 export const dynamic = "force-dynamic";
 
@@ -18,12 +18,18 @@ export default async function StudentAttendancePage({
   searchParams: Promise<{ disciplina?: string; status?: string; periodo?: string }>;
 }) {
   const filters = await searchParams;
+  const selectedSubjectParam = filters.disciplina ?? "todas";
+  const selectedPeriodFilter = filters.periodo === "30" || filters.periodo === "90" ? filters.periodo : "todos";
+  const selectedStatusFilter =
+    filters.status === "presente" || filters.status === "ausente" || filters.status === "justificado"
+      ? filters.status
+      : "todos";
   const selectedStatus =
-    filters.status === "presente"
+    selectedStatusFilter === "presente"
       ? "PRESENT"
-      : filters.status === "ausente"
+      : selectedStatusFilter === "ausente"
         ? "ABSENT"
-        : filters.status === "justificado"
+        : selectedStatusFilter === "justificado"
           ? "JUSTIFIED"
           : null;
   const session = await requireSession(["ALUNO"]);
@@ -33,73 +39,78 @@ export default async function StudentAttendancePage({
   const subjects = [
     ...new Map(attendances.map((attendance) => [attendance.subject.id, attendance.subject] as const)).values()
   ].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+  const selectedSubjectFilter =
+    selectedSubjectParam === "todas" || subjects.some((subject) => subject.id === selectedSubjectParam)
+      ? selectedSubjectParam
+      : "todas";
   const filteredAttendances = attendances.filter((attendance) => {
-    const bySubject = !filters.disciplina || filters.disciplina === "todas" || attendance.subject.id === filters.disciplina;
+    const bySubject = selectedSubjectFilter === "todas" || attendance.subject.id === selectedSubjectFilter;
     const byStatus = !selectedStatus || attendance.status === selectedStatus;
     const now = new Date();
-    const days = filters.periodo === "30" ? 30 : filters.periodo === "90" ? 90 : null;
+    const days = selectedPeriodFilter === "30" ? 30 : selectedPeriodFilter === "90" ? 90 : null;
     const byPeriod = !days || attendance.date >= new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
     return bySubject && byStatus && byPeriod;
   });
 
   return (
-    <main className="page-shell">
+    <main className="student-page">
       <StudentPageHeader
         title="Frequência"
-        description="Acompanhe presença geral, disciplina e histórico de chamadas."
+        description="Acompanhe presença geral, disciplina e histórico das chamadas registradas."
         eyebrow={portal.enrollment?.classroom.name}
       />
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StudentMetric label="Presença geral" value={formatPercent(summary.attendanceRate)} icon={ClipboardCheck} />
-        <StudentMetric label="Faltas" value={summary.absences} icon={FileWarning} />
-        <StudentMetric label="Justificadas" value={summary.justified} icon={BookOpenCheck} />
-        <StudentMetric label="Aulas registradas" value={summary.registered} icon={ListChecks} />
+        <StudentMetric label="Presença geral" value={formatPercent(summary.attendanceRate)} icon={ClipboardCheck} tone="success" />
+        <StudentMetric label="Faltas" value={summary.absences} icon={FileWarning} tone={summary.absences > 0 ? "warning" : "success"} />
+        <StudentMetric label="Justificadas" value={summary.justified} icon={BookOpenCheck} tone="info" />
+        <StudentMetric label="Aulas registradas" value={summary.registered} icon={ListChecks} tone="primary" />
       </section>
 
-      <StudentSection title="Frequência por disciplina">
-        <div className="grid gap-4 md:grid-cols-2">
-          {summary.bySubject.map((subject) => (
-            <div key={subject.subject.id} className="rounded-md border p-3">
-              <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="font-medium text-slate-950">{subject.subject.name}</span>
-                <strong>{formatPercent(subject.attendanceRate)}</strong>
-              </div>
-              <ProgressBar value={subject.attendanceRate} className="mt-2" />
-              <p className="mt-1 text-xs text-muted-foreground">{subject.total} aulas registradas</p>
-            </div>
-          ))}
-          {!summary.bySubject.length ? (
-            <p className="text-sm text-muted-foreground">Nenhuma chamada registrada até o momento.</p>
-          ) : null}
-        </div>
+      <StudentSection title="Frequência por disciplina" description="Percentual de presença consolidado por matéria.">
+        {summary.bySubject.length ? (
+          <div className="grid gap-4 md:grid-cols-2">
+            {summary.bySubject.map((subject) => {
+              const belowMinimum = isAttendanceBelowMinimum(subject.attendanceRate);
+              return (
+                <div
+                  key={subject.subject.id}
+                  className={cn(
+                    "rounded-lg border border-border bg-surface-muted/60 p-4",
+                    belowMinimum && "border-warning/30 bg-warning-soft/40"
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span className="font-semibold text-school-navy">{subject.subject.name}</span>
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      {belowMinimum ? <Badge variant="warning">Abaixo do mínimo</Badge> : null}
+                      <strong className={belowMinimum ? "text-warning" : "text-school-navy"}>
+                        {formatPercent(subject.attendanceRate)}
+                      </strong>
+                    </div>
+                  </div>
+                  <ProgressBar value={subject.attendanceRate} className="mt-3" />
+                  <p className="mt-2 text-xs text-text-muted">{subject.total} aulas registradas</p>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <StudentEmptyState title="Nenhuma chamada registrada" description="Sua frequência por disciplina aparecerá aqui." />
+        )}
       </StudentSection>
 
-      <StudentSection title="Histórico de frequência">
-        <form className="mb-4 grid gap-3 md:grid-cols-[1fr_180px_180px_auto]" action="/aluno/frequencia">
-          <Select name="disciplina" defaultValue={filters.disciplina ?? "todas"}>
-            <option value="todas">Todas as disciplinas</option>
-            {subjects.map((subject) => (
-              <option key={subject.id} value={subject.id}>{subject.name}</option>
-            ))}
-          </Select>
-          <Select name="periodo" defaultValue={filters.periodo ?? "todos"}>
-            <option value="todos">Todo o período</option>
-            <option value="30">Últimos 30 dias</option>
-            <option value="90">Últimos 90 dias</option>
-          </Select>
-          <Select name="status" defaultValue={filters.status ?? "todos"}>
-            <option value="todos">Todos os status</option>
-            <option value="presente">Presente</option>
-            <option value="ausente">Ausente</option>
-            <option value="justificado">Justificado</option>
-          </Select>
-          <Button type="submit" variant="secondary">Filtrar</Button>
-        </form>
+      <StudentSection title="Histórico de frequência" description="Use os filtros para localizar chamadas específicas.">
+        <StudentAttendanceFilters
+          subjects={subjects}
+          selectedSubject={selectedSubjectFilter}
+          selectedPeriod={selectedPeriodFilter}
+          selectedStatus={selectedStatusFilter}
+        />
 
-        <div className="overflow-x-auto">
-          <table className="data-table">
-            <thead className="sticky top-14 z-10">
+        <div className="student-table-wrap">
+          <table className="student-table">
+            <thead>
               <tr>
                 <th>Data</th>
                 <th>Disciplina</th>
@@ -110,14 +121,21 @@ export default async function StudentAttendancePage({
               {filteredAttendances.map((attendance) => (
                 <tr key={attendance.id}>
                   <td>{formatDate(attendance.date)}</td>
-                  <td className="font-medium text-slate-950">{attendance.subject.name}</td>
-                  <td><Badge variant={attendance.status === "PRESENT" ? "success" : attendance.status === "JUSTIFIED" ? "info" : "warning"}>{studentAttendanceLabel(attendance.status)}</Badge></td>
+                  <td className="font-medium text-school-navy">{attendance.subject.name}</td>
+                  <td>
+                    <Badge variant={attendance.status === "PRESENT" ? "success" : attendance.status === "JUSTIFIED" ? "info" : "warning"}>
+                      {studentAttendanceLabel(attendance.status)}
+                    </Badge>
+                  </td>
                 </tr>
               ))}
               {!filteredAttendances.length ? (
                 <tr>
                   <td colSpan={3}>
-                    <div className="py-6 text-center text-sm text-muted-foreground">Nenhum registro encontrado para os filtros selecionados.</div>
+                    <div className="py-8 text-center text-sm text-text-secondary">
+                      <strong className="block text-school-navy">Nenhum registro de frequência encontrado</strong>
+                      <span className="mt-1 block">Tente ajustar os filtros selecionados.</span>
+                    </div>
                   </td>
                 </tr>
               ) : null}

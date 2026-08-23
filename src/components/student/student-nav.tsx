@@ -14,11 +14,11 @@ const items = [
   { href: "/aluno/perfil", label: "Meu Perfil", icon: UserRound }
 ];
 
-export function StudentNav({ onMobile = false }: { onMobile?: boolean }) {
+export function StudentNav() {
   const pathname = usePathname();
 
   return (
-    <nav className={cn("flex gap-1", onMobile ? "flex-col p-2" : "flex-col px-3 pb-3")}>
+    <nav className="relative flex gap-1 overflow-x-auto px-4 pb-4 lg:flex-1 lg:flex-col lg:overflow-y-auto lg:px-4 lg:pb-6">
       {items.map((item) => {
         const Icon = item.icon;
         const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
@@ -28,11 +28,11 @@ export function StudentNav({ onMobile = false }: { onMobile?: boolean }) {
             key={item.href}
             href={item.href}
             className={cn(
-              "inline-flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-              active && "bg-primary/10 text-primary ring-1 ring-primary/15"
+              "inline-flex min-w-fit items-center gap-3 rounded-md px-3.5 py-3 text-sm font-medium transition-colors lg:w-full",
+              active ? "bg-school-primary text-white shadow-sm" : "text-white/78 hover:bg-white/10 hover:text-white"
             )}
           >
-            <Icon className="h-4 w-4" />
+            <Icon className="h-4 w-4 shrink-0" />
             {item.label}
           </Link>
         );

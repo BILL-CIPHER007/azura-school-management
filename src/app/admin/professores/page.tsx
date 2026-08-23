@@ -1,14 +1,12 @@
 import Link from "next/link";
 import type { UserStatus } from "@prisma/client";
-import { Search } from "lucide-react";
-import { AdminEmptyState, AdminPageHeader, AdminToolbar, RowActions } from "@/components/admin/admin-ui";
+import { AdminEmptyState, AdminPageHeader, AdminToolbar } from "@/components/admin/admin-ui";
+import { RowActions } from "@/components/admin/row-actions";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { shiftLabel, userStatusLabel, userStatusTone } from "@/lib/admin-labels";
 import { requireSession } from "@/lib/auth";
 import { listSubjects, listTeachers } from "@/services/school-data";
+import { AdminTeacherFilters } from "./admin-teacher-filters";
 
 export const dynamic = "force-dynamic";
 
@@ -37,26 +35,12 @@ export default async function TeachersPage({
       />
 
       <AdminToolbar>
-        <form className="grid gap-3 md:grid-cols-[1fr_220px_160px_auto]">
-          <label className="relative">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-            <Input name="busca" placeholder="Buscar por nome" defaultValue={params.busca} className="pl-9" />
-          </label>
-          <Select name="disciplina" defaultValue={params.disciplina ?? ""}>
-            <option value="">Todas as disciplinas</option>
-            {subjects.map((subject) => (
-              <option key={subject.id} value={subject.id}>
-                {subject.name}
-              </option>
-            ))}
-          </Select>
-          <Select name="status" defaultValue={params.status ?? ""}>
-            <option value="">Todos os status</option>
-            <option value="ACTIVE">Ativo</option>
-            <option value="INACTIVE">Inativo</option>
-          </Select>
-          <Button type="submit">Filtrar</Button>
-        </form>
+        <AdminTeacherFilters
+          subjects={subjects}
+          selectedSearch={params.busca}
+          selectedSubject={params.disciplina}
+          selectedStatus={params.status}
+        />
       </AdminToolbar>
 
       <div className="table-wrap">
@@ -93,10 +77,7 @@ export default async function TeachersPage({
                       <RowActions
                         items={[
                           { label: "Ver professor", href: `/admin/professores/${teacher.id}` },
-                          { label: "Editar", disabled: true },
-                          { label: "Atribuir disciplinas", href: `/admin/professores/${teacher.id}#vinculos` },
-                          { label: "Atribuir turmas", href: `/admin/professores/${teacher.id}#vinculos` },
-                          { label: "Ativar/Desativar", disabled: true }
+                          { label: "Gerenciar atribuições", href: `/admin/professores/${teacher.id}/atribuicoes` }
                         ]}
                       />
                     </td>
@@ -108,7 +89,10 @@ export default async function TeachersPage({
         </div>
         {!teachers.length ? (
           <div className="p-4">
-            <AdminEmptyState title="Nenhum professor encontrado" description="Ajuste os filtros para encontrar a equipe docente." />
+            <AdminEmptyState
+              title="Nenhum professor encontrado"
+              description="Tente ajustar a busca ou os filtros selecionados."
+            />
           </div>
         ) : null}
       </div>

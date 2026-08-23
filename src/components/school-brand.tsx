@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { Badge } from "@/components/ui/badge";
 import { schoolConfig } from "@/config/school";
 import { cn } from "@/lib/utils";
 
@@ -45,14 +46,5 @@ export function SchoolBrand({
 
 export function DemoBadge({ className }: { className?: string }) {
   if (!schoolConfig.demo.isDemo) return null;
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-blue-200",
-        className
-      )}
-    >
-      {schoolConfig.demo.badgeLabel}
-    </span>
-  );
+  return <Badge className={className}>{schoolConfig.demo.badgeLabel}</Badge>;
 }

@@ -406,7 +406,10 @@ async function main() {
         title: "Prova de Matemática",
         description: "Avaliação bimestral das turmas de 8º e 9º ano.",
         type: CalendarEventType.PROVA,
-        startsAt: academicDate("08-24")
+        startsAt: academicDate("08-24"),
+        startTime: "08:00",
+        endTime: "09:30",
+        endsAt: new Date(`${academicYearValue}-08-24T09:30:00.000`)
       },
       {
         schoolId: school.id,
@@ -414,7 +417,8 @@ async function main() {
         title: "Reunião com responsáveis",
         description: "Encontro para acompanhamento acadêmico.",
         type: CalendarEventType.REUNIAO,
-        startsAt: academicDate("08-28")
+        startsAt: academicDate("08-28"),
+        startTime: "18:30"
       },
       {
         schoolId: school.id,

@@ -2,11 +2,13 @@ import type * as React from "react";
 import { cn } from "@/lib/utils";
 
 const variants = {
-  neutral: "bg-muted text-muted-foreground",
-  success: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
-  warning: "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
-  danger: "bg-red-50 text-red-700 ring-1 ring-red-200",
-  info: "bg-blue-50 text-blue-700 ring-1 ring-blue-200"
+  default: "bg-muted text-muted-foreground",
+  primary: "bg-school-primary-soft text-school-blue-700 ring-1 ring-school-blue-100",
+  neutral: "bg-muted text-muted-foreground ring-1 ring-border",
+  success: "bg-success-soft text-success ring-1 ring-success/15",
+  warning: "bg-warning-soft text-warning ring-1 ring-warning/20",
+  danger: "bg-danger-soft text-danger ring-1 ring-danger/15",
+  info: "bg-info-soft text-info ring-1 ring-info/15"
 };
 
 export function Badge({

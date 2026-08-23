@@ -19,20 +19,23 @@ export function AttendanceList({
   classroomId,
   subjectId,
   subjectName,
+  classroomName,
   students,
   defaultDate
 }: {
   classroomId: string;
   subjectId: string;
   subjectName: string;
+  classroomName: string;
   students: StudentRow[];
   defaultDate: string;
 }) {
   const initialStatuses = useMemo(
     () =>
-      Object.fromEntries(
-        students.map((student) => [student.enrollmentId, student.currentStatus ?? "PRESENT"])
-      ) as Record<string, AttendanceStatus>,
+      Object.fromEntries(students.map((student) => [student.enrollmentId, student.currentStatus ?? "PRESENT"])) as Record<
+        string,
+        AttendanceStatus
+      >,
     [students]
   );
   const [statuses, setStatuses] = useState(initialStatuses);
@@ -50,18 +53,27 @@ export function AttendanceList({
       <input type="hidden" name="classroomId" value={classroomId} />
       <input type="hidden" name="subjectId" value={subjectId} />
 
-      <div className="grid gap-3 rounded-lg bg-white p-4 shadow-sm ring-1 ring-slate-200 lg:grid-cols-[220px_1fr_auto] lg:items-center">
+      <div className="grid gap-3 rounded-lg border border-border bg-surface p-4 shadow-sm lg:grid-cols-[220px_1fr_auto] lg:items-center">
         <Input name="date" type="date" defaultValue={defaultDate} />
-        <div className="text-sm text-muted-foreground">
-          <strong className="text-foreground">{subjectName}</strong> · {students.length} alunos
+        <div className="grid gap-2 text-sm text-text-secondary sm:grid-cols-3">
+          <span>
+            <strong className="block text-school-navy">Turma</strong>
+            {classroomName}
+          </span>
+          <span>
+            <strong className="block text-school-navy">Disciplina</strong>
+            {subjectName}
+          </span>
+          <span>
+            <strong className="block text-school-navy">Alunos</strong>
+            {students.length}
+          </span>
         </div>
         <Button
           type="button"
           variant="secondary"
           onClick={() =>
-            setStatuses(
-              Object.fromEntries(students.map((student) => [student.enrollmentId, "PRESENT"]))
-            )
+            setStatuses(Object.fromEntries(students.map((student) => [student.enrollmentId, "PRESENT"])))
           }
         >
           Marcar todos como presentes
@@ -69,24 +81,24 @@ export function AttendanceList({
       </div>
 
       <div className="flex flex-wrap gap-2 text-sm">
-        <span className="rounded-md bg-emerald-50 px-3 py-1 font-medium text-emerald-700">
+        <span className="rounded-md bg-success-soft px-3 py-1 font-medium text-success">
           Presentes: {summary.PRESENT}
         </span>
-        <span className="rounded-md bg-red-50 px-3 py-1 font-medium text-red-700">
+        <span className="rounded-md bg-danger-soft px-3 py-1 font-medium text-danger">
           Ausentes: {summary.ABSENT}
         </span>
-        <span className="rounded-md bg-amber-50 px-3 py-1 font-medium text-amber-700">
+        <span className="rounded-md bg-warning-soft px-3 py-1 font-medium text-warning">
           Justificados: {summary.JUSTIFIED}
         </span>
       </div>
 
-      <div className="overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-slate-200">
+      <div className="overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
         {students.map((student) => (
           <div
             key={student.enrollmentId}
-            className="grid gap-3 border-b p-3 last:border-b-0 md:grid-cols-[1fr_auto] md:items-center"
+            className="grid gap-3 border-b border-border p-3 last:border-b-0 md:grid-cols-[1fr_auto] md:items-center"
           >
-            <div className="font-medium">
+            <div className="font-medium text-school-navy">
               <input type="hidden" name="enrollmentId" value={student.enrollmentId} />
               {student.name}
             </div>
@@ -97,8 +109,8 @@ export function AttendanceList({
                   className={cn(
                     "flex cursor-pointer items-center justify-center rounded-md border px-3 py-2 text-sm font-medium transition-colors",
                     statuses[student.enrollmentId] === status
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "bg-white text-muted-foreground hover:bg-muted"
+                      ? "border-school-primary bg-school-primary text-white"
+                      : "border-border bg-surface text-text-secondary hover:bg-school-primary-soft hover:text-school-primary"
                   )}
                 >
                   <input
@@ -122,7 +134,9 @@ export function AttendanceList({
         ))}
       </div>
 
-      <Button type="submit" className="w-fit">Salvar chamada</Button>
+      <Button type="submit" className="w-fit">
+        Salvar chamada
+      </Button>
     </form>
   );
 }

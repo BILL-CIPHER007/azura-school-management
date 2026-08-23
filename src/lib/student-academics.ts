@@ -1,11 +1,12 @@
 import type { AttendanceStatus } from "@prisma/client";
+import { hasExplicitEventTime as hasRealCalendarEventTime, type CalendarEventTimeLike } from "@/lib/calendar-events";
 import { average, gradeSituation } from "@/lib/utils";
 
 type GradeLike = {
   id: string;
   average: number;
   subject: { id: string; name: string };
-  academicPeriod: { id: string; name: string; sortOrder: number; academicYear?: { year: number } };
+  academicPeriod: { id: string; name: string; sortOrder: number; endsAt?: Date; academicYear?: { year: number } };
 };
 
 type AttendanceLike = {
@@ -15,7 +16,11 @@ type AttendanceLike = {
   subject: { id: string; name: string };
 };
 
-export function buildGradeRows(grades: GradeLike[], attendanceRate: number) {
+export function buildGradeRows(
+  grades: GradeLike[],
+  attendanceRate: number,
+  options: { isFinal?: boolean } = {}
+) {
   const periods = [
     ...new Map(
       grades
@@ -45,7 +50,7 @@ export function buildGradeRows(grades: GradeLike[], attendanceRate: number) {
       values,
       average: subjectAverage,
       attendanceRate,
-      situation: gradeSituation(subjectAverage, attendanceRate)
+      situation: gradeSituation(subjectAverage, attendanceRate, options)
     };
   });
 }
@@ -83,6 +88,10 @@ export function summarizeAttendance(attendances: AttendanceLike[]) {
       }))
       .sort((a, b) => a.subject.name.localeCompare(b.subject.name, "pt-BR"))
   };
+}
+
+export function hasExplicitEventTime(event: CalendarEventTimeLike) {
+  return hasRealCalendarEventTime(event);
 }
 
 export function latestGrades(grades: GradeLike[], limit = 4) {

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AdminMetric, AdminPageHeader, AdminSection, RowActions } from "@/components/admin/admin-ui";
+import { AdminEmptyState, AdminMetric, AdminPageHeader, AdminSection } from "@/components/admin/admin-ui";
+import { RowActions } from "@/components/admin/row-actions";
 import { ProgressBar } from "@/components/dashboard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,20 @@ const tabs = [
   { id: "desempenho", label: "Desempenho" },
   { id: "frequencia", label: "Frequência" }
 ] as const;
+
+function calculateAttendanceRate(attendances: Array<{ status: string }>) {
+  if (!attendances.length) return 0;
+  const present = attendances.filter((attendance) => attendance.status === "PRESENT").length;
+  return (present / attendances.length) * 100;
+}
+
+function academicYearStatusLabel(academicYear: { startsAt: Date; endsAt: Date; isActive: boolean }) {
+  const now = new Date();
+  if (academicYear.isActive) return "ativo";
+  if (academicYear.endsAt < now) return "encerrado";
+  if (academicYear.startsAt > now) return "futuro";
+  return "em andamento";
+}
 
 export default async function ClassroomDetailsPage({
   params,
@@ -40,27 +55,46 @@ export default async function ClassroomDetailsPage({
   const attendanceValues = classroom.enrollments.flatMap((enrollment) =>
     enrollment.attendances.map((attendance) => attendance.status)
   );
-  const attendance = attendanceValues.length
-    ? (attendanceValues.filter((status) => status === "PRESENT").length / attendanceValues.length) * 100
-    : 0;
+  const attendance = calculateAttendanceRate(attendanceValues.map((status) => ({ status })));
+  const hasAttendanceRecords = attendanceValues.length > 0;
+  const academicYearEnded = classroom.academicYear.endsAt < new Date();
+  const academicYearStatus = academicYearStatusLabel(classroom.academicYear);
   const students = classroom.enrollments.map((enrollment) => {
     const studentAverage = average(enrollment.grades.map((grade) => grade.average));
-    const studentAttendance = enrollment.attendances.length
-      ? (enrollment.attendances.filter((item) => item.status === "PRESENT").length / enrollment.attendances.length) *
-        100
-      : 0;
+    const studentAttendance = calculateAttendanceRate(enrollment.attendances);
     return {
       enrollment,
       average: studentAverage,
       attendance: studentAttendance,
-      situation: gradeSituation(studentAverage, studentAttendance)
+      situation: gradeSituation(studentAverage, studentAttendance, { isFinal: academicYearEnded })
     };
   });
-  const subjectPerformance = [...new Set(classroom.enrollments.flatMap((enrollment) => enrollment.grades.map((grade) => grade.subject.name)))].map((subjectName) => {
-    const values = classroom.enrollments.flatMap((enrollment) =>
-      enrollment.grades.filter((grade) => grade.subject.name === subjectName).map((grade) => grade.average)
-    );
-    return { subjectName, average: average(values), belowAverage: values.filter((value) => !isPassingGrade(value)).length };
+  const sortedStudentsByAttendance = [...students].sort(
+    (first, second) =>
+      first.attendance - second.attendance ||
+      first.enrollment.student.fullName.localeCompare(second.enrollment.student.fullName, "pt-BR")
+  );
+  const subjectPerformance = [
+    ...new Map(
+      classroom.enrollments
+        .flatMap((enrollment) => enrollment.grades.map((grade) => [grade.subjectId, grade.subject] as const))
+        .sort(([, first], [, second]) => first.name.localeCompare(second.name, "pt-BR"))
+    ).entries()
+  ].map(([subjectId, subject]) => {
+    const studentAverages = classroom.enrollments
+      .map((enrollment) => {
+        const values = enrollment.grades
+          .filter((grade) => grade.subjectId === subjectId)
+          .map((grade) => grade.average);
+        return values.length ? average(values) : null;
+      })
+      .filter((value): value is number => value !== null);
+
+    return {
+      subjectName: subject.name,
+      average: average(studentAverages),
+      belowAverage: studentAverages.filter((value) => !isPassingGrade(value)).length
+    };
   });
 
   return (
@@ -78,9 +112,9 @@ export default async function ClassroomDetailsPage({
             <Button asChild variant="outline">
               <Link href="/admin/turmas">Voltar</Link>
             </Button>
-            <Button variant="secondary" disabled>Editar turma</Button>
-            <Button variant="secondary" disabled>Atribuir professor</Button>
-            <Button variant="secondary" disabled>Gerenciar disciplinas</Button>
+            <Button asChild>
+              <Link href={`/admin/turmas/${classroom.id}/atribuicoes`}>Gerenciar atribuições</Link>
+            </Button>
           </>
         }
       />
@@ -105,12 +139,13 @@ export default async function ClassroomDetailsPage({
           <AdminMetric label="Média" value={gradeAverage.toFixed(1)} detail="geral da turma" />
           <AdminMetric label="Frequência" value={formatPercent(attendance)} detail="média registrada" />
           <AdminMetric label="Turno" value={shiftLabel(classroom.shift)} detail={classroom.gradeLevel} />
-          <AdminMetric label="Ano letivo" value={classroom.academicYear.year} detail="ativo" />
+          <AdminMetric label="Ano letivo" value={classroom.academicYear.year} detail={academicYearStatus} />
         </section>
       ) : null}
 
       {activeTab === "alunos" ? (
         <AdminSection title="Alunos da turma">
+          {students.length ? (
           <div className="overflow-x-auto">
             <table className="data-table">
               <thead>
@@ -145,28 +180,50 @@ export default async function ClassroomDetailsPage({
               </tbody>
             </table>
           </div>
+          ) : (
+            <AdminEmptyState
+              title="Nenhum aluno matriculado"
+              description="Esta turma ainda não possui matrículas ativas."
+            />
+          )}
         </AdminSection>
       ) : null}
 
       {activeTab === "professores" ? (
-        <AdminSection title="Professores e disciplinas" description="Vínculos desta turma.">
-          <div className="grid gap-3 md:grid-cols-2">
-            {classroom.assignments.map((assignment) => (
-              <Link
-                key={assignment.id}
-                href={`/admin/professores/${assignment.teacherId}`}
-                className="rounded-lg border p-4 hover:bg-muted"
-              >
-                <strong>{assignment.teacher.fullName}</strong>
-                <p className="text-sm text-muted-foreground">{assignment.subject.name}</p>
-              </Link>
-            ))}
-          </div>
+        <AdminSection
+          title="Professores e disciplinas"
+          description="Vínculos desta turma."
+          action={
+            <Button asChild variant="secondary" size="sm">
+              <Link href={`/admin/turmas/${classroom.id}/atribuicoes`}>Gerenciar atribuições</Link>
+            </Button>
+          }
+        >
+          {classroom.assignments.length ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              {classroom.assignments.map((assignment) => (
+                <Link
+                  key={assignment.id}
+                  href={`/admin/professores/${assignment.teacherId}`}
+                  className="rounded-lg border p-4 hover:bg-muted"
+                >
+                  <strong>{assignment.subject.name}</strong>
+                  <p className="text-sm text-muted-foreground">{assignment.teacher.fullName}</p>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <AdminEmptyState
+              title="Nenhuma atribuição cadastrada"
+              description="Adicione professores e disciplinas para esta turma."
+            />
+          )}
         </AdminSection>
       ) : null}
 
       {activeTab === "desempenho" ? (
         <AdminSection title="Desempenho da turma">
+          {subjectPerformance.length ? (
           <div className="grid gap-3">
             {subjectPerformance.map((subject) => (
               <div key={subject.subjectName} className="rounded-lg border p-4">
@@ -176,16 +233,23 @@ export default async function ClassroomDetailsPage({
                 </div>
                 <ProgressBar value={subject.average * 10} className="mt-3" />
                 <p className="mt-2 text-sm text-muted-foreground">
-                  {subject.belowAverage} registros abaixo da média mínima.
+                  {subject.belowAverage} {subject.belowAverage === 1 ? "aluno" : "alunos"} abaixo da média mínima.
                 </p>
               </div>
             ))}
           </div>
+          ) : (
+            <AdminEmptyState
+              title="Nenhum dado de desempenho disponível"
+              description="As médias aparecerão quando houver lançamentos de notas."
+            />
+          )}
         </AdminSection>
       ) : null}
 
       {activeTab === "frequencia" ? (
         <AdminSection title="Frequência da turma">
+          {hasAttendanceRecords ? (
           <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
             <div className="rounded-lg border p-4">
               <strong className="text-3xl">{formatPercent(attendance)}</strong>
@@ -193,8 +257,7 @@ export default async function ClassroomDetailsPage({
               <p className="mt-2 text-sm text-muted-foreground">Frequência média registrada.</p>
             </div>
             <div className="grid gap-3">
-              {students
-                .sort((a, b) => a.attendance - b.attendance)
+              {sortedStudentsByAttendance
                 .slice(0, 8)
                 .map((item) => (
                   <Link
@@ -210,6 +273,12 @@ export default async function ClassroomDetailsPage({
                 ))}
             </div>
           </div>
+          ) : (
+            <AdminEmptyState
+              title="Nenhum registro de frequência disponível"
+              description="Os dados aparecerão quando houver chamadas registradas."
+            />
+          )}
         </AdminSection>
       ) : null}
     </main>

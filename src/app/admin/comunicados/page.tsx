@@ -1,10 +1,7 @@
-import { createAnnouncement } from "@/app/actions/academic";
-import { AdminPageHeader, AdminSection, RowActions } from "@/components/admin/admin-ui";
+import { AnnouncementForm } from "@/app/admin/comunicados/announcement-form";
+import { AdminEmptyState, AdminPageHeader, AdminSection } from "@/components/admin/admin-ui";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+import { announcementScopeLabel } from "@/lib/announcements";
 import { audienceLabel } from "@/lib/admin-labels";
 import { requireSession } from "@/lib/auth";
 import { formatDate } from "@/lib/utils";
@@ -12,12 +9,25 @@ import { listAnnouncementsAdmin, listClassrooms } from "@/services/school-data";
 
 export const dynamic = "force-dynamic";
 
-export default async function AnnouncementsPage() {
+const errorMessages: Record<string, string> = {
+  validacao: "Informe título, público e conteúdo válidos.",
+  turma: "A turma selecionada não pertence à escola atual.",
+  "turma-obrigatoria": "Selecione uma turma para publicar como turma específica."
+};
+
+export default async function AnnouncementsPage({
+  searchParams
+}: {
+  searchParams: Promise<{ sucesso?: string; erro?: string }>;
+}) {
   const session = await requireSession(["ADMIN"]);
+  const query = await searchParams;
   const [announcements, classrooms] = await Promise.all([
     listAnnouncementsAdmin(session.schoolId),
     listClassrooms(session.schoolId)
   ]);
+  const successMessage = query.sucesso === "publicado" ? "Comunicado publicado com sucesso." : null;
+  const errorMessage = query.erro ? errorMessages[query.erro] ?? "Não foi possível publicar o comunicado." : null;
 
   return (
     <main className="page-shell">
@@ -27,29 +37,22 @@ export default async function AnnouncementsPage() {
         breadcrumbs={[{ label: "Admin", href: "/admin/dashboard" }, { label: "Comunicados" }]}
       />
 
-      <AdminSection title="Novo comunicado" description="Mensagem publicada nos portais correspondentes ao público selecionado.">
-        <form action={createAnnouncement} className="grid gap-3">
-          <div className="grid gap-3 md:grid-cols-[1fr_220px_220px]">
-            <Input name="title" placeholder="Título" required />
-            <Select name="audience" defaultValue="SCHOOL">
-              <option value="SCHOOL">Toda a escola</option>
-              <option value="PROFESSORS">Professores</option>
-              <option value="STUDENTS">Alunos</option>
-              <option value="GUARDIANS">Responsáveis</option>
-              <option value="CLASSROOM">Turma específica</option>
-            </Select>
-            <Select name="classroomId" defaultValue="">
-              <option value="">Sem turma</option>
-              {classrooms.map((classroom) => (
-                <option key={classroom.id} value={classroom.id}>
-                  {classroom.name}
-                </option>
-              ))}
-            </Select>
+      <AdminSection
+        title="Novo comunicado"
+        description="Mensagem publicada nos portais correspondentes ao público selecionado."
+      >
+        {successMessage || errorMessage ? (
+          <div
+            className={
+              successMessage
+                ? "mb-4 rounded-md border border-success/20 bg-success-soft px-3 py-2 text-sm font-medium text-success"
+                : "mb-4 rounded-md border border-danger/20 bg-danger-soft px-3 py-2 text-sm font-medium text-danger"
+            }
+          >
+            {successMessage ?? errorMessage}
           </div>
-          <Textarea name="content" placeholder="Conteúdo do comunicado" required />
-          <Button type="submit" className="w-fit">Publicar comunicado</Button>
-        </form>
+        ) : null}
+        <AnnouncementForm classrooms={classrooms} />
       </AdminSection>
 
       <AdminSection title="Comunicados publicados">
@@ -61,8 +64,6 @@ export default async function AnnouncementsPage() {
                 <th>Público</th>
                 <th>Turma</th>
                 <th>Publicado em</th>
-                <th>Status</th>
-                <th>Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -75,26 +76,21 @@ export default async function AnnouncementsPage() {
                   <td>
                     <Badge variant="info">{audienceLabel(announcement.audience)}</Badge>
                   </td>
-                  <td>{announcement.classroom?.name ?? "-"}</td>
+                  <td>{announcementScopeLabel(announcement)}</td>
                   <td>{formatDate(announcement.publishedAt)}</td>
-                  <td>
-                    <Badge variant="success">Publicado</Badge>
-                  </td>
-                  <td>
-                    <RowActions
-                      items={[
-                        { label: "Visualizar", disabled: true },
-                        { label: "Editar", disabled: true },
-                        { label: "Excluir", disabled: true },
-                        { label: "Republicar", disabled: true }
-                      ]}
-                    />
-                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        {!announcements.length ? (
+          <div className="p-4">
+            <AdminEmptyState
+              title="Nenhum comunicado publicado"
+              description="Publique o primeiro comunicado para iniciar os avisos da escola."
+            />
+          </div>
+        ) : null}
       </AdminSection>
     </main>
   );

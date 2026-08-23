@@ -3,26 +3,53 @@
 @tailwind utilities;
 
 :root {
-  --background: 210 33% 98%;
-  --foreground: 216 29% 16%;
+  --background: 220 45% 97%;
+  --foreground: 216 57% 15%;
   --card: 0 0% 100%;
-  --card-foreground: 216 29% 16%;
-  --primary: 207 72% 39%;
+  --card-foreground: 216 57% 15%;
+  --surface: 0 0% 100%;
+  --surface-muted: 210 40% 96%;
+  --primary: 221 82% 47%;
   --primary-foreground: 0 0% 100%;
-  --school-primary: 207 72% 39%;
+  --school-primary: 221 82% 47%;
   --school-primary-foreground: 0 0% 100%;
-  --muted: 210 25% 94%;
-  --muted-foreground: 215 14% 43%;
-  --accent: 156 45% 92%;
-  --accent-foreground: 160 51% 21%;
-  --school-accent: 156 45% 92%;
-  --school-accent-foreground: 160 51% 21%;
-  --destructive: 0 72% 51%;
+  --school-primary-hover: 220 83% 40%;
+  --school-primary-soft: 220 100% 96%;
+  --school-navy: 217 78% 20%;
+  --school-blue-700: 217 74% 35%;
+  --school-blue-500: 219 77% 54%;
+  --school-blue-100: 217 100% 96%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 220 13% 46%;
+  --accent: 217 100% 96%;
+  --accent-foreground: 217 78% 20%;
+  --school-accent: 217 100% 96%;
+  --school-accent-foreground: 217 78% 20%;
+  --destructive: 0 58% 50%;
   --destructive-foreground: 0 0% 100%;
-  --border: 214 22% 88%;
-  --input: 214 22% 88%;
-  --ring: 207 72% 39%;
-  --radius: 0.5rem;
+  --border: 214 35% 92%;
+  --border-strong: 216 33% 87%;
+  --input: 214 35% 92%;
+  --ring: 221 82% 47%;
+  --text-primary: 216 57% 15%;
+  --text-secondary: 220 13% 46%;
+  --text-muted: 218 15% 65%;
+  --success: 146 70% 31%;
+  --success-soft: 144 52% 95%;
+  --warning: 35 71% 42%;
+  --warning-soft: 40 100% 95%;
+  --danger: 0 58% 50%;
+  --danger-soft: 0 100% 97%;
+  --info: 222 83% 53%;
+  --info-soft: 218 100% 97%;
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.25rem;
+  --radius: var(--radius-md);
+  --shadow-sm: 0 1px 2px rgb(16 33 58 / 0.05);
+  --shadow-md: 0 6px 20px rgb(16 33 58 / 0.08);
+  --shadow-lg: 0 16px 40px rgb(16 33 58 / 0.10);
 }
 
 * {
@@ -63,5 +90,140 @@ body {
 
   .data-table td {
     @apply border-t px-4 py-3 align-middle;
+  }
+
+  .data-table tbody tr {
+    @apply transition-colors hover:bg-accent/50;
+  }
+
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2;
+  }
+
+  .admin-root .page-shell {
+    @apply max-w-[1440px] gap-5 px-4 py-5 sm:px-6 lg:px-8;
+  }
+
+  .admin-sidebar {
+    overflow: hidden;
+  }
+
+  @media (min-width: 1024px) and (max-height: 640px) {
+    .admin-sidebar {
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
+  }
+
+  .admin-root .table-wrap {
+    @apply overflow-x-auto rounded-lg border border-border bg-surface shadow-sm;
+  }
+
+  .admin-root .data-table {
+    @apply min-w-[780px];
+  }
+
+  .admin-root .data-table th {
+    @apply bg-school-primary-soft px-4 py-3 text-xs font-semibold uppercase tracking-normal text-school-navy;
+  }
+
+  .admin-root .data-table td {
+    @apply border-t border-border px-4 py-3 text-text-primary;
+  }
+
+  .admin-root .data-table tbody tr {
+    @apply hover:bg-school-primary-soft/55;
+  }
+
+  .teacher-root .teacher-page {
+    @apply mx-auto flex w-full max-w-[1320px] flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8;
+  }
+
+  .teacher-root .teacher-surface {
+    @apply overflow-hidden rounded-lg border border-border bg-surface shadow-sm;
+  }
+
+  .teacher-root .teacher-table-wrap {
+    @apply overflow-x-auto rounded-lg border border-border bg-surface shadow-sm;
+  }
+
+  .teacher-root .teacher-table {
+    @apply w-full min-w-[760px] border-collapse text-sm;
+  }
+
+  .teacher-root .teacher-table th {
+    @apply bg-school-primary-soft px-4 py-3 text-left text-xs font-semibold uppercase tracking-normal text-school-navy;
+  }
+
+  .teacher-root .teacher-table td {
+    @apply border-t border-border px-4 py-3 align-middle text-text-primary;
+  }
+
+  .teacher-root .teacher-table tbody tr {
+    @apply transition-colors hover:bg-school-primary-soft/55;
+  }
+
+  @keyframes teacher-attendance-detail {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .student-root .student-page {
+    @apply mx-auto flex w-full max-w-[1320px] flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8;
+  }
+
+  .student-root .student-surface {
+    @apply overflow-hidden rounded-lg border border-border bg-surface shadow-sm;
+  }
+
+  .student-root .student-table-wrap {
+    @apply overflow-x-auto rounded-lg border border-border bg-surface shadow-sm;
+  }
+
+  .student-root .student-table {
+    @apply w-full min-w-[720px] border-collapse text-sm;
+  }
+
+  .student-root .student-table th {
+    @apply bg-school-primary-soft px-4 py-3 text-left text-xs font-semibold uppercase tracking-normal text-school-navy;
+  }
+
+  .student-root .student-table td {
+    @apply border-t border-border px-4 py-3 align-middle text-text-primary;
+  }
+
+  .student-root .student-table tbody tr {
+    @apply transition-colors hover:bg-school-primary-soft/55;
+  }
+
+  .guardian-root .guardian-page {
+    @apply mx-auto flex w-full max-w-[1320px] flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8;
+  }
+
+  .guardian-root .guardian-table-wrap {
+    @apply overflow-x-auto rounded-lg border border-border bg-surface shadow-sm;
+  }
+
+  .guardian-root .guardian-table {
+    @apply w-full min-w-[720px] border-collapse text-sm;
+  }
+
+  .guardian-root .guardian-table th {
+    @apply bg-school-primary-soft px-4 py-3 text-left text-xs font-semibold uppercase tracking-normal text-school-navy;
+  }
+
+  .guardian-root .guardian-table td {
+    @apply border-t border-border px-4 py-3 align-middle text-text-primary;
+  }
+
+  .guardian-root .guardian-table tbody tr {
+    @apply transition-colors hover:bg-school-primary-soft/55;
   }
 }

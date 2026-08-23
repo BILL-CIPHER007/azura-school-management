@@ -1,17 +1,12 @@
 import Link from "next/link";
 import type { EnrollmentStatus } from "@prisma/client";
-import { Search } from "lucide-react";
-import { AdminEmptyState, AdminPageHeader, AdminToolbar, RowActions } from "@/components/admin/admin-ui";
+import { AdminStudentFilters } from "@/app/admin/alunos/admin-student-filters";
+import { AdminEmptyState, AdminPageHeader, AdminToolbar } from "@/components/admin/admin-ui";
+import { RowActions } from "@/components/admin/row-actions";
 import { ProgressBar } from "@/components/dashboard";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
-import {
-  enrollmentStatusLabel,
-  enrollmentStatusTone,
-  shiftLabel
-} from "@/lib/admin-labels";
+import { isAttendanceBelowMinimum } from "@/lib/academic-rules";
+import { enrollmentStatusLabel, enrollmentStatusTone, shiftLabel } from "@/lib/admin-labels";
 import { requireSession } from "@/lib/auth";
 import { formatDate, formatPercent } from "@/lib/utils";
 import { listClassrooms, listStudents } from "@/services/school-data";
@@ -39,38 +34,17 @@ export default async function StudentsPage({
     <main className="page-shell">
       <AdminPageHeader
         title="Alunos"
-        description="Busca, filtros, situação acadêmica e acompanhamento dos alunos."
+        description="Busca, filtros, status da matrícula e acompanhamento dos alunos."
         breadcrumbs={[{ label: "Admin", href: "/admin/dashboard" }, { label: "Alunos" }]}
-        action={
-          <Button asChild>
-            <Link href="/admin/matriculas/nova">Novo aluno</Link>
-          </Button>
-        }
       />
 
       <AdminToolbar>
-        <form className="grid gap-3 md:grid-cols-[1fr_220px_190px_auto]">
-          <label className="relative">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-            <Input name="busca" placeholder="Buscar por nome" defaultValue={params.busca} className="pl-9" />
-          </label>
-          <Select name="turma" defaultValue={params.turma ?? ""}>
-            <option value="">Todas as turmas</option>
-            {classrooms.map((classroom) => (
-              <option key={classroom.id} value={classroom.id}>
-                {classroom.name}
-              </option>
-            ))}
-          </Select>
-          <Select name="situacao" defaultValue={params.situacao ?? ""}>
-            <option value="">Todas as situações</option>
-            <option value="ACTIVE">Ativa</option>
-            <option value="TRANSFERRED">Transferida</option>
-            <option value="COMPLETED">Concluída</option>
-            <option value="CANCELLED">Cancelada</option>
-          </Select>
-          <Button type="submit">Filtrar</Button>
-        </form>
+        <AdminStudentFilters
+          classrooms={classrooms}
+          selectedSearch={params.busca}
+          selectedClassroom={params.turma}
+          selectedStatus={params.situacao}
+        />
       </AdminToolbar>
 
       <div className="table-wrap">
@@ -83,9 +57,9 @@ export default async function StudentsPage({
                 <th>Turma</th>
                 <th>Série</th>
                 <th>Responsável</th>
-                <th>Situação</th>
+                <th>Status da matrícula</th>
                 <th>Frequência</th>
-                <th>Data</th>
+                <th>Data da matrícula</th>
                 <th>Ações</th>
               </tr>
             </thead>
@@ -97,6 +71,8 @@ export default async function StudentsPage({
                   ? (attendance.filter((item) => item.status === "PRESENT").length / attendance.length) * 100
                   : 0;
                 const guardian = student.guardians[0]?.guardian;
+                const belowMinimum = attendance.length > 0 && isAttendanceBelowMinimum(rate);
+
                 return (
                   <tr key={student.id}>
                     <td>
@@ -108,7 +84,7 @@ export default async function StudentsPage({
                     <td>
                       {enrollment?.classroom.name ?? "-"}
                       {enrollment?.classroom.shift ? (
-                        <span className="block text-xs text-muted-foreground">
+                        <span className="block text-xs text-text-muted">
                           {shiftLabel(enrollment.classroom.shift)}
                         </span>
                       ) : null}
@@ -121,9 +97,14 @@ export default async function StudentsPage({
                       </Badge>
                     </td>
                     <td>
-                      <div className="w-32">
+                      <div className="w-36">
                         <ProgressBar value={rate} />
-                        <span className="text-xs text-muted-foreground">{formatPercent(rate)}</span>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <span className={belowMinimum ? "text-xs font-medium text-warning" : "text-xs text-text-muted"}>
+                            {formatPercent(rate)}
+                          </span>
+                          {belowMinimum ? <Badge variant="warning">Abaixo do mínimo</Badge> : null}
+                        </div>
                       </div>
                     </td>
                     <td>{enrollment ? formatDate(enrollment.enrolledAt) : "-"}</td>
@@ -131,7 +112,6 @@ export default async function StudentsPage({
                       <RowActions
                         items={[
                           { label: "Ver perfil", href: `/admin/alunos/${student.id}` },
-                          { label: "Editar", disabled: true },
                           {
                             label: "Ver matrícula",
                             href: enrollment ? `/admin/matriculas?busca=${encodeURIComponent(enrollment.registration)}` : undefined
@@ -149,10 +129,13 @@ export default async function StudentsPage({
         </div>
         {!students.length ? (
           <div className="p-4">
-            <AdminEmptyState title="Nenhum aluno encontrado" description="Ajuste os filtros ou cadastre uma nova matrícula." />
+            <AdminEmptyState
+              title="Nenhum aluno encontrado"
+              description="Tente ajustar a busca ou os filtros selecionados."
+            />
           </div>
         ) : (
-          <div className="border-t px-4 py-3 text-sm text-muted-foreground">
+          <div className="border-t px-4 py-3 text-sm text-text-muted">
             Mostrando até 50 resultados. Paginação preparada para expansão do MVP.
           </div>
         )}

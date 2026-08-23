@@ -5,6 +5,8 @@ import type {
   EnrollmentStatus,
   Shift
 } from "@prisma/client";
+import { announcementAudienceLabel } from "@/lib/announcements";
+import { calendarEventTypeLabel } from "@/lib/calendar-events";
 
 export function studentInitials(name: string) {
   return name
@@ -20,28 +22,11 @@ export function studentFirstName(name: string) {
 }
 
 export function studentAudienceLabel(value: AnnouncementAudience | string) {
-  const labels: Record<string, string> = {
-    SCHOOL: "Toda a escola",
-    PROFESSORS: "Professores",
-    STUDENTS: "Alunos",
-    GUARDIANS: "Responsáveis",
-    CLASSROOM: "Turma específica"
-  };
-
-  return labels[value] ?? value;
+  return announcementAudienceLabel(value);
 }
 
 export function studentEventTypeLabel(value: CalendarEventType | string) {
-  const labels: Record<string, string> = {
-    PROVA: "Prova",
-    REUNIAO: "Reunião",
-    EVENTO: "Evento",
-    FERIADO: "Feriado",
-    ATIVIDADE: "Atividade",
-    PRAZO: "Prazo"
-  };
-
-  return labels[value] ?? value;
+  return calendarEventTypeLabel(value);
 }
 
 export function studentAttendanceLabel(value: AttendanceStatus | string) {

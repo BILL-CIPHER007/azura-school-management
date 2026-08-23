@@ -7,6 +7,8 @@ import type {
   UserRole,
   UserStatus
 } from "@prisma/client";
+import { announcementAudienceLabel } from "@/lib/announcements";
+import { calendarEventTypeLabel } from "@/lib/calendar-events";
 
 export function adminInitials(name: string) {
   return name
@@ -73,28 +75,11 @@ export function shiftLabel(value: Shift | string) {
 }
 
 export function audienceLabel(value: AnnouncementAudience | string) {
-  const labels: Record<string, string> = {
-    SCHOOL: "Toda a escola",
-    PROFESSORS: "Professores",
-    STUDENTS: "Alunos",
-    GUARDIANS: "Responsáveis",
-    CLASSROOM: "Turma específica"
-  };
-
-  return labels[value] ?? value;
+  return announcementAudienceLabel(value);
 }
 
 export function eventTypeLabel(value: CalendarEventType | string) {
-  const labels: Record<string, string> = {
-    PROVA: "Prova",
-    REUNIAO: "Reunião",
-    EVENTO: "Evento",
-    FERIADO: "Feriado",
-    ATIVIDADE: "Atividade",
-    PRAZO: "Prazo"
-  };
-
-  return labels[value] ?? value;
+  return calendarEventTypeLabel(value);
 }
 
 export function attendanceStatusLabel(value: AttendanceStatus | string) {
@@ -111,6 +96,9 @@ export function auditActionLabel(value: string) {
   const labels: Record<string, string> = {
     "seed.executed": "Carga inicial executada",
     "enrollment.created": "Matrícula criada",
+    "guardian.created": "Responsável criado",
+    "teacher_assignment.created": "Atribuição criada",
+    "teacher_assignment.deleted": "Atribuição removida",
     "grade.upserted": "Nota registrada",
     "attendance.upserted": "Frequência registrada"
   };
@@ -122,6 +110,9 @@ export function auditEntityLabel(value: string) {
   const labels: Record<string, string> = {
     School: "Escola",
     Enrollment: "Matrícula",
+    Guardian: "Responsável",
+    TeacherSubject: "Atribuição",
+    Subject: "Disciplina",
     Grade: "Nota",
     Attendance: "Frequência",
     Announcement: "Comunicado",

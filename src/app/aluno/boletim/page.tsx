@@ -1,12 +1,12 @@
 import { BookOpenCheck, ClipboardCheck, GraduationCap, NotebookTabs } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
 import { StudentMetric, StudentPageHeader, StudentSection, StudentStatusBadge } from "@/components/student/student-ui";
 import { requireSession } from "@/lib/auth";
+import { isPassingVisibleGrade } from "@/lib/academic-rules";
 import { buildGradeRows } from "@/lib/student-academics";
 import { formatPercent } from "@/lib/utils";
 import { getStudentPortal, summarizeEnrollment } from "@/services/school-data";
+import { StudentReportFilters } from "./student-report-filters";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +18,9 @@ export default async function StudentReportPage({
   const filters = await searchParams;
   const session = await requireSession(["ALUNO"]);
   const portal = await getStudentPortal(session.schoolId, session.id);
-  const summary = summarizeEnrollment(portal.enrollment);
+  const now = new Date();
+  const academicYearEnded = portal.enrollment ? portal.enrollment.academicYear.endsAt < now : false;
+  const summary = summarizeEnrollment(portal.enrollment, { isFinal: academicYearEnded });
   const allGrades = portal.enrollment?.grades ?? [];
   const years = [
     ...new Set(
@@ -36,7 +38,9 @@ export default async function StudentReportPage({
         .sort(([, a], [, b]) => a.sortOrder - b.sortOrder)
     ).values()
   ];
-  const selectedPeriod = filters.periodo ?? "todos";
+  const requestedPeriod = filters.periodo ?? "todos";
+  const selectedPeriod =
+    requestedPeriod === "todos" || periods.some((period) => period.id === requestedPeriod) ? requestedPeriod : "todos";
   const visiblePeriods =
     selectedPeriod === "todos" ? periods : periods.filter((period) => period.id === selectedPeriod);
   const filteredGrades = allGrades.filter((grade) => {
@@ -44,44 +48,44 @@ export default async function StudentReportPage({
     const byPeriod = selectedPeriod === "todos" || grade.academicPeriod.id === selectedPeriod;
     return byYear && byPeriod;
   });
-  const gradeRows = buildGradeRows(filteredGrades, summary.attendanceRate);
+  const selectedContextEnded =
+    selectedPeriod === "todos" ? academicYearEnded : visiblePeriods.length > 0 && visiblePeriods.every((period) => period.endsAt < now);
+  const gradeRows = buildGradeRows(filteredGrades, summary.attendanceRate, { isFinal: selectedContextEnded });
 
   return (
-    <main className="page-shell">
+    <main className="student-page">
       <StudentPageHeader
         title="Boletim"
-        description="Notas, médias, frequência e situação acadêmica."
+        description="Notas, médias, frequência e situação acadêmica organizadas por disciplina."
         eyebrow={portal.enrollment?.classroom.name}
       />
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StudentMetric label="Média geral" value={summary.averageGrade.toFixed(1)} icon={NotebookTabs} />
-        <StudentMetric label="Frequência geral" value={formatPercent(summary.attendanceRate)} icon={ClipboardCheck} />
-        <StudentMetric label="Disciplinas" value={summary.subjectAverages.length} icon={BookOpenCheck} />
-        <StudentMetric label="Situação" value={summary.situation} icon={GraduationCap} />
+        <StudentMetric label="Média geral" value={summary.averageGrade.toFixed(1)} icon={NotebookTabs} tone="primary" />
+        <StudentMetric label="Frequência geral" value={formatPercent(summary.attendanceRate)} icon={ClipboardCheck} tone="success" />
+        <StudentMetric label="Disciplinas" value={summary.subjectAverages.length} icon={BookOpenCheck} tone="info" />
+        <StudentMetric
+          label="Situação"
+          value={summary.situation}
+          icon={GraduationCap}
+          tone={summary.situation === "Aprovado" || summary.situation === "Cursando" ? "success" : "warning"}
+          valueClassName="overflow-visible whitespace-normal text-2xl leading-tight text-clip"
+        />
       </section>
 
-      <StudentSection title="Filtros">
-        <form className="grid gap-3 sm:grid-cols-[180px_220px_auto]" action="/aluno/boletim">
-          <Select name="ano" defaultValue={selectedYear}>
-            {years.map((year) => (
-              <option key={year} value={year}>{year}</option>
-            ))}
-          </Select>
-          <Select name="periodo" defaultValue={selectedPeriod}>
-            <option value="todos">Todos os bimestres</option>
-            {periods.map((period) => (
-              <option key={period.id} value={period.id}>{period.name}</option>
-            ))}
-          </Select>
-          <Button type="submit" variant="secondary">Aplicar filtros</Button>
-        </form>
+      <StudentSection title="Filtros" description="Escolha o ano e o período para consultar o boletim.">
+        <StudentReportFilters
+          years={years}
+          periods={periods.map((period) => ({ id: period.id, name: period.name }))}
+          selectedYear={selectedYear}
+          selectedPeriod={selectedPeriod}
+        />
       </StudentSection>
 
-      <StudentSection title="Tabela do boletim" className="overflow-hidden">
+      <StudentSection title="Tabela do boletim" className="overflow-hidden" bodyClassName="p-0">
         <div className="overflow-x-auto">
-          <table className="data-table">
-            <thead className="sticky top-14 z-10">
+          <table className="student-table">
+            <thead>
               <tr>
                 <th>Disciplina</th>
                 {visiblePeriods.map((period) => (
@@ -95,31 +99,34 @@ export default async function StudentReportPage({
             <tbody>
               {gradeRows.map((row) => (
                 <tr key={row.subject.id}>
-                  <td className="font-semibold text-slate-950">{row.subject.name}</td>
+                  <td className="font-semibold text-school-navy">{row.subject.name}</td>
                   {visiblePeriods.map((period) => {
                     const grade = row.values.find((item) => item.periodId === period.id)?.value;
                     return <td key={period.id}>{grade === null || grade === undefined ? "-" : grade.toFixed(1)}</td>;
                   })}
-                  <td className="font-semibold">{row.average.toFixed(1)}</td>
+                  <td>
+                    <span className="inline-flex items-center gap-2">
+                      <strong className={isPassingVisibleGrade(row.average) ? "text-school-navy" : "text-warning"}>
+                        {row.average.toFixed(1)}
+                      </strong>
+                      {!isPassingVisibleGrade(row.average) ? <Badge variant="warning">Abaixo da média</Badge> : null}
+                    </span>
+                  </td>
                   <td>{formatPercent(row.attendanceRate)}</td>
-                  <td><StudentStatusBadge value={row.situation} /></td>
+                  <td>
+                    <StudentStatusBadge value={row.situation} />
+                  </td>
                 </tr>
               ))}
               {!gradeRows.length ? (
                 <tr>
                   <td colSpan={visiblePeriods.length + 4}>
-                    <div className="py-6 text-center text-sm text-muted-foreground">Nenhuma nota encontrada para os filtros selecionados.</div>
+                    <div className="py-8 text-center text-sm text-text-secondary">Nenhuma nota encontrada para os filtros selecionados.</div>
                   </td>
                 </tr>
               ) : null}
             </tbody>
           </table>
-        </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Badge variant="info">Cursando</Badge>
-          <Badge variant="success">Aprovado</Badge>
-          <Badge variant="warning">Recuperação</Badge>
-          <Badge variant="danger">Reprovado</Badge>
         </div>
       </StudentSection>
     </main>

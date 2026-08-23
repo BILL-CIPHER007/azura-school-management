@@ -1,8 +1,13 @@
 import type { AttendanceStatus } from "@prisma/client";
+import { schoolConfig } from "@/config/school";
+import { isAttendanceBelowMinimum, isPassingGrade, visibleGrade } from "@/lib/academic-rules";
 import { average, gradeSituation } from "@/lib/utils";
 
 type GradeLike = {
   id: string;
+  av1: number;
+  av2: number;
+  assignment: number;
   average: number;
   updatedAt?: Date;
   subject: { id: string; name: string };
@@ -90,12 +95,11 @@ export function summarizeGuardianAttendance(attendances: AttendanceLike[]) {
 }
 
 export function latestGuardianGrades(grades: GradeLike[], limit = 5) {
-  const sorted = [...grades]
-    .sort((a, b) => {
-      const dateA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-      const dateB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
-      return dateB - dateA || b.academicPeriod.sortOrder - a.academicPeriod.sortOrder;
-    });
+  const sorted = [...grades].sort((a, b) => {
+    const dateA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+    const dateB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+    return dateB - dateA || b.academicPeriod.sortOrder - a.academicPeriod.sortOrder;
+  });
   const bySubject = new Map<string, GradeLike>();
 
   for (const grade of sorted) {
@@ -110,28 +114,33 @@ export function latestGuardianGrades(grades: GradeLike[], limit = 5) {
 export function buildGuardianAttention({
   gradeRows,
   attendanceRate,
-  attendances
+  attendances,
+  absenceHistoryHref
 }: {
   gradeRows: Array<{ subject: { name: string }; average: number }>;
   attendanceRate: number;
   attendances: AttendanceLike[];
+  absenceHistoryHref?: string;
 }) {
-  const alerts: Array<{ title: string; value: string; description: string }> = [];
-  const lowSubjects = gradeRows.filter((row) => row.average > 0 && row.average < 7).slice(0, 3);
+  const alerts: Array<{ title: string; value: string; description: string; actionHref?: string; actionLabel?: string }> = [];
+  const lowSubjects = gradeRows
+    .map((row) => ({ ...row, visibleAverage: visibleGrade(row.average) }))
+    .filter((row) => row.visibleAverage > 0 && !isPassingGrade(row.visibleAverage))
+    .slice(0, 3);
 
   for (const subject of lowSubjects) {
     alerts.push({
       title: subject.subject.name,
-      value: `Média ${subject.average.toFixed(1)}`,
-      description: "Abaixo da média esperada"
+      value: `Média ${subject.visibleAverage.toFixed(1)}`,
+      description: `Abaixo da média mínima de ${schoolConfig.academic.passingGrade.toFixed(1)}`
     });
   }
 
-  if (attendanceRate > 0 && attendanceRate < 85) {
+  if (attendanceRate > 0 && isAttendanceBelowMinimum(attendanceRate)) {
     alerts.push({
       title: "Frequência",
       value: `${Math.round(attendanceRate)}%`,
-      description: "Próxima do limite mínimo"
+      description: `Abaixo da frequência mínima de ${schoolConfig.academic.minimumAttendance}%`
     });
   }
 
@@ -145,7 +154,9 @@ export function buildGuardianAttention({
     alerts.push({
       title: `${recentAbsences} faltas recentes`,
       value: "Últimos 14 dias",
-      description: "Vale acompanhar a regularidade"
+      description: "Vale acompanhar a regularidade",
+      actionHref: absenceHistoryHref,
+      actionLabel: "Ver histórico"
     });
   }
 

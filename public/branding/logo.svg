@@ -1,6 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192" role="img" aria-label="Escola Demonstrativa">
-  <rect width="192" height="192" rx="44" fill="#1C6EA4"/>
-  <path d="M44 69L96 40L148 69L96 98L44 69Z" fill="#FFFFFF"/>
-  <path d="M64 93V116C64 131 78 142 96 142C114 142 128 131 128 116V93L96 111L64 93Z" fill="#DFF3EA"/>
-  <path d="M148 69V111" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192" role="img" aria-label="Colégio Aprovação">
+  <rect width="192" height="192" rx="46" fill="#1657D8"/>
+  <path d="M142 28H164V50" fill="none" stroke="#EAF1FF" stroke-width="9" stroke-linecap="round"/>
+  <circle cx="96" cy="96" r="56" fill="#FFFFFF"/>
+  <path d="M68 97L88 117L126 75" fill="none" stroke="#1657D8" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M34 154L60 128" fill="none" stroke="#2F6FE4" stroke-width="10" stroke-linecap="round"/>
 </svg>

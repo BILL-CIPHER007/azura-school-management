@@ -16,9 +16,16 @@ import { getGuardianDetails } from "@/services/school-data";
 
 export const dynamic = "force-dynamic";
 
-export default async function GuardianDetailsPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function GuardianDetailsPage({
+  params,
+  searchParams
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ existente?: string; sucesso?: string }>;
+}) {
   const session = await requireSession(["ADMIN"]);
   const { id } = await params;
+  const query = await searchParams;
   const guardian = await getGuardianDetails(session.schoolId, id);
   if (!guardian) notFound();
 
@@ -33,23 +40,29 @@ export default async function GuardianDetailsPage({ params }: { params: Promise<
           { label: guardian.fullName }
         ]}
         action={
-          <>
-            <Button asChild variant="outline">
-              <Link href="/admin/responsaveis">Voltar</Link>
-            </Button>
-            <Button variant="secondary" disabled>Editar</Button>
-            <Button asChild>
-              <Link href="/admin/matriculas/nova">Vincular aluno</Link>
-            </Button>
-          </>
+          <Button asChild variant="outline">
+            <Link href="/admin/responsaveis">Voltar</Link>
+          </Button>
         }
       />
 
+      {query.existente ? (
+        <div className="rounded-lg border border-info/20 bg-info-soft px-4 py-3 text-sm text-info">
+          CPF ou e-mail já identificavam este responsável. O cadastro existente foi aberto para evitar duplicidade.
+        </div>
+      ) : null}
+
+      {query.sucesso === "cadastro" ? (
+        <div className="rounded-lg border border-success/20 bg-success-soft px-4 py-3 text-sm text-success">
+          Responsável cadastrado com sucesso.
+        </div>
+      ) : null}
+
       <section className="grid gap-3 md:grid-cols-3">
-        <AdminMetric label="Alunos vinculados" value={guardian.students.length} detail="vínculos ativos" />
+        <AdminMetric label="Alunos vinculados" value={guardian.students.length} detail="vínculos reais" />
         <AdminMetric label="Parentesco" value={guardian.relation} detail="cadastro" />
         <AdminMetric
-          label="Usuário"
+          label="Acesso ao portal"
           value={guardian.user ? userStatusLabel(guardian.user.status) : "Sem acesso"}
           tone={guardian.user ? userStatusTone(guardian.user.status) : "neutral"}
         />
@@ -74,13 +87,14 @@ export default async function GuardianDetailsPage({ params }: { params: Promise<
               <Link
                 key={item.studentId}
                 href={`/admin/alunos/${item.studentId}`}
-                className="rounded-lg border p-4 hover:bg-muted"
+                className="rounded-lg border border-border p-4 hover:bg-school-primary-soft"
               >
                 <div className="flex items-center justify-between gap-3">
-                  <strong>{item.student.fullName}</strong>
+                  <strong className="text-school-navy">{item.student.fullName}</strong>
                   {item.isPrimary ? <Badge variant="info">Responsável principal</Badge> : null}
                 </div>
-                <p className="mt-2 text-sm text-muted-foreground">
+                <p className="mt-1 text-sm text-text-secondary">{guardian.relation}</p>
+                <p className="mt-2 text-sm text-text-muted">
                   {enrollment
                     ? `${enrollment.classroom.name} · ${shiftLabel(enrollment.classroom.shift)} · ${enrollment.academicYear.year}`
                     : "Sem matrícula ativa"}

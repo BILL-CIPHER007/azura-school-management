@@ -45,7 +45,7 @@ export default async function ClassroomsPage() {
                 </div>
                 <h2 className="mt-4 text-xl font-semibold">{classroom.name}</h2>
                 <p className="text-sm text-muted-foreground">
-                  {classroom.gradeLevel} · {classroom._count.enrollments} alunos
+                  {classroom.gradeLevel} · {classroom.enrollments.length} alunos
                 </p>
                 <p className="mt-3 text-sm text-muted-foreground">
                   {teachers.length} professores · {classroom.assignments.length} vínculos

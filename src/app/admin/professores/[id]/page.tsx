@@ -34,16 +34,17 @@ export default async function TeacherDetailsPage({ params }: { params: Promise<{
             <Button asChild variant="outline">
               <Link href="/admin/professores">Voltar</Link>
             </Button>
-            <Button variant="secondary" disabled>Editar</Button>
-            <Button variant="secondary" disabled>Ativar/Desativar</Button>
+            <Button asChild>
+              <Link href={`/admin/professores/${teacher.id}/atribuicoes`}>Gerenciar atribuições</Link>
+            </Button>
           </>
         }
       />
 
       <section className="grid gap-3 md:grid-cols-4">
-        <AdminMetric label="Disciplinas" value={subjects.length} detail="vinculadas" />
-        <AdminMetric label="Turmas" value={classrooms.length} detail="ativas" />
-        <AdminMetric label="Vínculos" value={teacher.assignments.length} detail="professor/turma" />
+        <AdminMetric label="Disciplinas" value={subjects.length} detail="únicas" />
+        <AdminMetric label="Turmas" value={classrooms.length} detail="únicas" />
+        <AdminMetric label="Vínculos" value={teacher.assignments.length} detail="professor/turma/disciplina" />
         <AdminMetric label="Status" value={userStatusLabel(teacher.status)} tone={userStatusTone(teacher.status)} />
       </section>
 
@@ -52,30 +53,46 @@ export default async function TeacherDetailsPage({ params }: { params: Promise<{
           items={[
             { label: "E-mail", value: teacher.email },
             { label: "Telefone", value: teacher.phone },
-            { label: "Usuário", value: teacher.user?.email },
+            { label: "Acesso ao portal", value: teacher.user?.email },
             { label: "Criado em", value: formatDate(teacher.createdAt) }
           ]}
         />
       </AdminSection>
 
-      <AdminSection id="vinculos" title="Turmas e disciplinas" description="Relacionamentos atuais do professor.">
-        <div className="grid gap-3 md:grid-cols-2">
-          {teacher.assignments.map((assignment) => (
-            <Link
-              key={assignment.id}
-              href={`/admin/turmas/${assignment.classroomId}`}
-              className="rounded-lg border p-4 hover:bg-muted"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <strong>{assignment.classroom.name}</strong>
-                <Badge>{assignment.subject.name}</Badge>
-              </div>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {assignment.classroom.gradeLevel} · {shiftLabel(assignment.classroom.shift)}
-              </p>
-            </Link>
-          ))}
-        </div>
+      <AdminSection
+        id="vinculos"
+        title="Turmas e disciplinas"
+        description="Relacionamentos atuais do professor."
+        action={
+          <Button asChild variant="secondary" size="sm">
+            <Link href={`/admin/professores/${teacher.id}/atribuicoes`}>Gerenciar atribuições</Link>
+          </Button>
+        }
+      >
+        {teacher.assignments.length ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            {teacher.assignments.map((assignment) => (
+              <Link
+                key={assignment.id}
+                href={`/admin/turmas/${assignment.classroomId}`}
+                className="rounded-lg border p-4 hover:bg-muted"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <strong>{assignment.classroom.name}</strong>
+                  <Badge>{assignment.subject.name}</Badge>
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {assignment.classroom.gradeLevel} · {shiftLabel(assignment.classroom.shift)} ·{" "}
+                  {assignment.classroom.academicYear.year}
+                </p>
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed border-border bg-school-primary-soft/50 p-6 text-sm text-text-secondary">
+            Nenhuma atribuição cadastrada para este professor.
+          </div>
+        )}
       </AdminSection>
 
       <AdminSection title="Histórico simples">

@@ -1,8 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="420" height="96" viewBox="0 0 420 96" role="img" aria-label="Escola Demonstrativa">
-  <rect width="96" height="96" rx="22" fill="#1C6EA4"/>
-  <path d="M22 34L48 20L74 34L48 48L22 34Z" fill="#FFFFFF"/>
-  <path d="M32 46V58C32 65 39 70 48 70C57 70 64 65 64 58V46L48 55L32 46Z" fill="#DFF3EA"/>
-  <path d="M74 34V54" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/>
-  <text x="118" y="42" font-family="Inter, Arial, sans-serif" font-size="26" font-weight="700" fill="#183247">Escola</text>
-  <text x="118" y="70" font-family="Inter, Arial, sans-serif" font-size="26" font-weight="700" fill="#1C6EA4">Demonstrativa</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="112" viewBox="0 0 520 112" role="img" aria-label="Colégio Aprovação">
+  <rect width="112" height="112" rx="28" fill="#1657D8"/>
+  <circle cx="56" cy="56" r="31" fill="#FFFFFF"/>
+  <path d="M39 56.5L51 68L73 43" fill="none" stroke="#1657D8" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M87 22H100V35" fill="none" stroke="#EAF1FF" stroke-width="5" stroke-linecap="round"/>
+  <text x="136" y="48" font-family="Inter, Arial, sans-serif" font-size="27" font-weight="700" fill="#0B2A5B">Colégio</text>
+  <text x="136" y="82" font-family="Inter, Arial, sans-serif" font-size="31" font-weight="700" fill="#1657D8">Aprovação</text>
+  <path d="M340 78H476" stroke="#E4EAF2" stroke-width="3" stroke-linecap="round"/>
 </svg>

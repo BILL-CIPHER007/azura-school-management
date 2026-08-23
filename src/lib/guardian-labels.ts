@@ -6,6 +6,9 @@ import type {
   Shift
 } from "@prisma/client";
 import { schoolConfig } from "@/config/school";
+import { visibleGrade } from "@/lib/academic-rules";
+import { announcementAudienceLabel } from "@/lib/announcements";
+import { calendarEventTypeLabel } from "@/lib/calendar-events";
 
 export function guardianInitials(name: string) {
   return name
@@ -21,28 +24,11 @@ export function guardianFirstName(name: string) {
 }
 
 export function guardianAudienceLabel(value: AnnouncementAudience | string) {
-  const labels: Record<string, string> = {
-    SCHOOL: "Toda a escola",
-    PROFESSORS: "Professores",
-    STUDENTS: "Alunos",
-    GUARDIANS: "Responsáveis",
-    CLASSROOM: "Turma específica"
-  };
-
-  return labels[value] ?? value;
+  return announcementAudienceLabel(value);
 }
 
 export function guardianEventTypeLabel(value: CalendarEventType | string) {
-  const labels: Record<string, string> = {
-    PROVA: "Prova",
-    REUNIAO: "Reunião",
-    EVENTO: "Evento",
-    FERIADO: "Feriado",
-    ATIVIDADE: "Atividade",
-    PRAZO: "Prazo"
-  };
-
-  return labels[value] ?? value;
+  return calendarEventTypeLabel(value);
 }
 
 export function guardianAttendanceLabel(value: AttendanceStatus | string) {
@@ -83,9 +69,10 @@ export function guardianCompactText(value: string, maxLength = 120) {
 }
 
 export function guardianAcademicTone(average: number) {
-  if (average >= 8) return "Muito bom";
-  if (average >= schoolConfig.academic.passingGrade) return "Bom desempenho";
-  if (average >= schoolConfig.academic.recoveryGrade) return "Atenção";
-  if (average > 0) return "Precisa de apoio";
+  const visibleAverage = visibleGrade(average);
+  if (visibleAverage >= 8) return "Muito bom";
+  if (visibleAverage >= schoolConfig.academic.passingGrade) return "Bom desempenho";
+  if (visibleAverage >= schoolConfig.academic.recoveryGrade) return "Atenção";
+  if (visibleAverage > 0) return "Precisa de apoio";
   return "Cursando";
 }
