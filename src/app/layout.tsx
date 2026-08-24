@@ -7,8 +7,8 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: `${schoolConfig.name} | Portal Escolar`,
-  description: schoolConfig.description,
+  title: schoolConfig.metadata.title,
+  description: schoolConfig.metadata.description,
   icons: {
     icon: schoolConfig.branding.favicon
   }

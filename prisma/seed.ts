@@ -15,7 +15,7 @@ const academicYearValue = schoolConfig.academic.academicYear;
 const demoEmailDomain = schoolConfig.demo.emailDomain;
 
 function schoolSlug() {
-  return schoolConfig.name
+  return (schoolConfig.demo.schoolSlug || schoolConfig.demo.schoolName)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
@@ -120,7 +120,7 @@ async function main() {
   const passwordHash = await bcrypt.hash(demoPassword, 10);
   const school = await prisma.school.create({
     data: {
-      name: schoolConfig.name,
+      name: schoolConfig.demo.schoolName,
       slug: schoolSlug()
     }
   });
@@ -158,7 +158,7 @@ async function main() {
   const adminUser = await prisma.user.create({
     data: {
       schoolId: school.id,
-      name: `Secretaria ${schoolConfig.shortName}`,
+      name: `Secretaria ${schoolConfig.demo.schoolName}`,
       email: schoolConfig.demo.users.ADMIN,
       passwordHash,
       role: UserRole.ADMIN
@@ -450,7 +450,7 @@ async function main() {
     ]
   });
 
-  console.log(`Seed concluído para ${schoolConfig.name}.`);
+  console.log(`Seed concluído para ${schoolConfig.demo.schoolName} no ${schoolConfig.fullName}.`);
   console.log(`Senha demo: ${demoPassword}`);
   console.log(`Atribuições criadas: ${assignments.length}`);
 }

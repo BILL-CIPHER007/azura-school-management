@@ -13,7 +13,6 @@ import { AdminMetric, AdminSection } from "@/components/admin/admin-ui";
 import { ProgressBar } from "@/components/dashboard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { schoolConfig } from "@/config/school";
 import { audienceLabel, shiftLabel } from "@/lib/admin-labels";
 import { requireSession } from "@/lib/auth";
 import { formatEventDateTime } from "@/lib/calendar-events";
@@ -39,7 +38,7 @@ export default async function AdminDashboardPage() {
             <p className="text-sm font-medium text-text-muted">Dashboard administrativo</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-normal text-school-navy">Olá, {firstName}!</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-text-secondary">
-              Aqui está o resumo geral do {schoolConfig.name}: matrículas, turmas, frequência e pontos de atenção.
+              Aqui está o resumo geral da escola: matrículas, turmas, frequência e pontos de atenção.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

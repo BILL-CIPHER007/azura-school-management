@@ -44,6 +44,8 @@ export type DemoConfig = {
   showDemoMetrics: boolean;
   badgeLabel: string;
   quickAccessEnabled: boolean;
+  schoolName: string;
+  schoolSlug: string;
   emailDomain: string;
   passwordFallback: string;
   users: Record<UserRole, string>;
@@ -54,9 +56,16 @@ export type SchoolConfig = {
   name: string;
   shortName: string;
   initials: string;
+  slug: string;
+  descriptor: string;
+  fullName: string;
   description: string;
   landingTitle: string;
   landingSubtitle: string;
+  metadata: {
+    title: string;
+    description: string;
+  };
   branding: SchoolBranding;
   theme: SchoolTheme;
   academic: AcademicConfig;
@@ -64,17 +73,25 @@ export type SchoolConfig = {
   demo: DemoConfig;
 };
 
-const schoolName = process.env.NEXT_PUBLIC_SCHOOL_NAME || "Colégio Aprovação";
-const schoolShortName = process.env.NEXT_PUBLIC_SCHOOL_SHORT_NAME || "Aprovação";
-const schoolInitials = process.env.NEXT_PUBLIC_SCHOOL_INITIALS || "CA";
+const productName = process.env.NEXT_PUBLIC_PRODUCT_NAME || "Azura";
+const productDescriptor = process.env.NEXT_PUBLIC_PRODUCT_DESCRIPTOR || "Sistema de Gestão Escolar";
+const productShortName = process.env.NEXT_PUBLIC_PRODUCT_SHORT_NAME || "Azura";
+const productInitials = process.env.NEXT_PUBLIC_PRODUCT_INITIALS || "AZ";
 
 export const schoolConfig: SchoolConfig = {
-  name: schoolName,
-  shortName: schoolShortName,
-  initials: schoolInitials,
-  description: "Portal escolar integrado do Colégio Aprovação.",
-  landingTitle: `Bem-vindo ao ${schoolName}`,
+  name: productName,
+  shortName: productShortName,
+  initials: productInitials,
+  slug: "azura",
+  descriptor: productDescriptor,
+  fullName: `${productName} — ${productDescriptor}`,
+  description: "Plataforma integrada para gestão acadêmica, comunicação e acompanhamento escolar.",
+  landingTitle: `${productName} — ${productDescriptor}`,
   landingSubtitle: "Gestão escolar, acompanhamento acadêmico e comunicação em um só lugar.",
+  metadata: {
+    title: `${productName} | ${productDescriptor}`,
+    description: "Plataforma integrada para gestão acadêmica, comunicação e acompanhamento escolar."
+  },
   branding: {
     logo: "/branding/logo.svg",
     logoCompact: "/branding/logo-compact.svg",
@@ -115,18 +132,20 @@ export const schoolConfig: SchoolConfig = {
     showDemoMetrics: true,
     badgeLabel: "Ambiente de demonstração",
     quickAccessEnabled: true,
-    emailDomain: "demo.aprovacao.local",
+    schoolName: "Escola Demonstrativa",
+    schoolSlug: "escola-demonstrativa",
+    emailDomain: "demo.azura.local",
     passwordFallback: "demo123",
     users: {
-      ADMIN: "admin@demo.aprovacao.local",
-      PROFESSOR: "professor@demo.aprovacao.local",
-      ALUNO: "aluno@demo.aprovacao.local",
-      RESPONSAVEL: "responsavel@demo.aprovacao.local"
+      ADMIN: "admin@demo.azura.local",
+      PROFESSOR: "professor@demo.azura.local",
+      ALUNO: "aluno@demo.azura.local",
+      RESPONSAVEL: "responsavel@demo.azura.local"
     },
     metrics: [
-      { value: "30+", label: "alunos na demo" },
-      { value: "4", label: "turmas ativas" },
-      { value: "6", label: "disciplinas base" }
+      { value: "4", label: "perfis integrados" },
+      { value: "1", label: "gestao centralizada" },
+      { value: "", label: "rotina conectada" }
     ]
   }
 };

@@ -92,38 +92,38 @@ export default async function SettingsPage() {
     <main className="page-shell">
       <AdminPageHeader
         title="Configurações"
-        description="Escola, ano letivo, regras acadêmicas e auditoria básica."
+        description="Produto, escola, ano letivo, regras acadêmicas e auditoria básica."
         breadcrumbs={[{ label: "Admin", href: "/admin/dashboard" }, { label: "Configurações" }]}
       />
 
       <section className="grid gap-4 lg:grid-cols-2">
-        <AdminSection title="Escola" description="Dados cadastrais e branding da instalação atual.">
+        <AdminSection title="Produto e escola" description="Dados cadastrais da escola e branding do produto.">
           <DefinitionList
             items={[
               {
-                label: "Nome no banco",
+                label: "Escola no banco",
                 value: <SettingValue value={settings.school.name} source="School.name" tone="success" />
               },
               {
-                label: "Nome configurado",
-                value: <SettingValue value={schoolConfig.name} source="Arquivo/env" tone="info" />
+                label: "Produto configurado",
+                value: <SettingValue value={schoolConfig.fullName} source="Arquivo/env" tone="info" />
               },
               {
-                label: "Nome curto",
+                label: "Nome curto do produto",
                 value: <SettingValue value={schoolConfig.shortName} source="Arquivo/env" tone="info" />
               },
               {
-                label: "Sigla",
+                label: "Sigla do produto",
                 value: <SettingValue value={schoolConfig.initials} source="Arquivo/env" tone="info" />
               },
               {
-                label: "Slug",
+                label: "Slug da escola",
                 value: <SettingValue value={settings.school.slug} source="Estrutural" tone="warning" />
               }
             ]}
           />
           <p className="mt-4 rounded-md border border-border bg-muted/40 p-3 text-sm leading-6 text-text-secondary">
-            O branding vem da configuração da instalação e pode exigir alteração de arquivo, variável de ambiente e
+            O branding identifica o produto da instalação e pode exigir alteração de arquivo, variável de ambiente e
             novo deploy. O slug identifica a escola no banco e não deve ser editado diretamente nesta tela.
           </p>
         </AdminSection>

@@ -1,6 +1,6 @@
 # Customizacao por escola
 
-Este projeto foi preparado para ser usado como uma base reutilizavel por uma unica escola por instalacao. Ele nao implementa SaaS multi-tenant: cada deploy deve apontar para uma escola, um banco e uma configuracao institucional.
+Azura e o produto base do sistema de gestao escolar. O projeto foi preparado para ser usado como uma base reutilizavel por uma unica escola por instalacao. Ele nao implementa SaaS multi-tenant: cada deploy deve apontar para uma escola, um banco e uma configuracao institucional.
 
 ## Arquivo principal
 
@@ -8,13 +8,15 @@ A configuracao central fica em `src/config/school.ts`.
 
 Edite esse arquivo para ajustar:
 
-- `name`, `shortName` e `initials`: identidade textual da escola.
-- `description`, `landingTitle` e `landingSubtitle`: textos institucionais da pagina inicial e metadata.
+- `name`, `shortName`, `initials`, `descriptor`, `fullName` e `slug`: identidade textual do produto.
+- `description`, `landingTitle`, `landingSubtitle` e `metadata`: textos institucionais da pagina inicial e metadata.
 - `branding`: caminhos dos arquivos de marca em `public/branding`.
 - `theme`: cores em HSL usadas pelos tokens CSS do projeto.
 - `academic`: ano letivo, sistema de periodos, nota minima, nota de recuperacao, frequencia minima e datas padrao.
 - `features`: chaves para habilitar ou ocultar recursos por instalacao futura.
-- `demo`: exibicao de demo, metricas, acessos rapidos, emails e senha padrao.
+- `demo`: exibicao de demo, escola demonstrativa, metricas, acessos rapidos, emails e senha padrao.
+
+A escola cliente ou demonstrativa deve continuar representada pelos dados do banco (`School.name` e `School.slug`). Nao use o nome Azura como escola real: Azura identifica o software.
 
 ## Logos
 
@@ -86,7 +88,7 @@ DEMO_PASSWORD="nova-senha"
 
 O seed usa a configuracao central para criar:
 
-- nome e slug da escola;
+- nome e slug da escola demonstrativa;
 - ano letivo ativo;
 - nomes dos periodos;
 - emails demo principais;

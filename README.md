@@ -1,6 +1,6 @@
-# Colégio Aprovação | Sistema de Gestão Escolar
+# Azura — Sistema de Gestão Escolar
 
-Protótipo funcional do sistema de gestão escolar do **Colégio Aprovação**, construído para demonstração comercial e validação dos fluxos acadêmicos principais: matrícula, alunos, responsáveis, professores, turmas, disciplinas, notas, frequência, boletim, comunicados e calendário.
+Plataforma de gestão escolar com áreas integradas para **Administração**, **Professores**, **Alunos** e **Responsáveis**. O projeto foi estruturado como uma base genérica e comercial, preparada para receber personalização de marca, escola demonstrativa ou identidade própria por instalação.
 
 ## Tecnologias
 
@@ -40,16 +40,16 @@ npm run prisma:migrate
 npm run prisma:seed
 ```
 
-O seed cria a escola **Colégio Aprovação**, 4 turmas, 6 disciplinas, 5 professores, mais de 30 alunos, responsáveis, notas, frequências, comunicados e eventos.
+O seed cria uma **Escola Demonstrativa**, 4 turmas, 6 disciplinas, 5 professores, mais de 30 alunos, responsáveis, notas, frequências, comunicados e eventos.
 
 ## Usuários de Demonstração
 
 Senha padrão de desenvolvimento: valor de `DEMO_PASSWORD`, ou `demo123` se não estiver definido.
 
-- Administrador: `admin@demo.aprovacao.local`
-- Professor: `professor@demo.aprovacao.local`
-- Aluno: `aluno@demo.aprovacao.local`
-- Responsável: `responsavel@demo.aprovacao.local`
+- Administrador: `admin@demo.azura.local`
+- Professor: `professor@demo.azura.local`
+- Aluno: `aluno@demo.azura.local`
+- Responsável: `responsavel@demo.azura.local`
 
 ## Execução
 
@@ -75,6 +75,10 @@ O build executa `prisma generate` antes de compilar o Next.js.
 - `src/lib`: Prisma, autenticação, sessão e utilitários
 - `src/services`: consultas e regras de leitura por domínio
 - `prisma`: schema e seed
+
+## Personalização por escola
+
+A marca do produto fica centralizada em `src/config/school.ts`. Cada escola pode receber nome, logo, textos institucionais, domínio de e-mails fictícios e configurações acadêmicas próprias sem alterar as regras centrais do sistema. Consulte `CUSTOMIZATION.md` para o checklist de adaptação.
 
 ## Docker
 

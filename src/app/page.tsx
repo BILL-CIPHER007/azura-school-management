@@ -394,7 +394,7 @@ export default async function Home({
               Uma plataforma preparada para a rotina da sua escola
             </h2>
             <p className="mt-5 text-lg leading-8 text-text-secondary">
-              O portal do {schoolConfig.name} centraliza informações essenciais para melhorar organização, clareza,
+              A {schoolConfig.shortName} centraliza informações essenciais para melhorar organização, clareza,
               integração entre equipes e acompanhamento acadêmico ao longo do ano letivo.
             </p>
           </div>
@@ -412,7 +412,8 @@ export default async function Home({
       <footer id="contato" className="border-t border-border bg-school-navy text-white">
         <div className="mx-auto grid w-full max-w-7xl gap-10 px-4 py-12 sm:px-6 md:grid-cols-[1.1fr_0.8fr_0.8fr_0.8fr] lg:px-8">
           <div>
-            <SchoolBrand compact className="text-white" />
+            <SchoolBrand className="text-white" />
+            <p className="mt-2 text-sm font-medium text-white/72">{schoolConfig.descriptor}</p>
             <p className="mt-4 max-w-sm text-sm leading-6 text-white/72">
               {schoolConfig.description} Uma experiência integrada para gestão, comunicação e acompanhamento escolar.
             </p>

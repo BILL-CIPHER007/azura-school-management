@@ -29,7 +29,9 @@ export function announcementScopeLabel(announcement: {
 }
 
 export function announcementSenderName(announcement: { author?: { name: string } | null }) {
-  return announcement.author?.name ?? "Secretaria";
+  const name = announcement.author?.name?.trim();
+  if (!name || name.toLowerCase().startsWith("secretaria")) return "Secretaria";
+  return name;
 }
 
 export function teacherAnnouncementWhere(schoolId: string, classroomIds: string[]): Prisma.AnnouncementWhereInput {
