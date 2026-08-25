@@ -221,7 +221,7 @@ export default async function Home({
     <main className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-40 border-b border-border/80 bg-white/92 backdrop-blur">
         <div className="mx-auto flex h-20 w-full max-w-7xl items-center justify-between gap-5 px-4 sm:px-6 lg:px-8">
-          <SchoolBrand href="/" className="text-base text-text-primary" />
+          <SchoolBrand href="/" variant="horizontal" imageClassName="h-10 max-w-[150px]" />
           <nav aria-label="Navegação principal" className="hidden items-center gap-7 text-sm font-medium text-text-secondary lg:flex">
             <Link href="#recursos" className="transition hover:text-school-primary">
               Recursos
@@ -412,8 +412,11 @@ export default async function Home({
       <footer id="contato" className="border-t border-border bg-school-navy text-white">
         <div className="mx-auto grid w-full max-w-7xl gap-10 px-4 py-12 sm:px-6 md:grid-cols-[1.1fr_0.8fr_0.8fr_0.8fr] lg:px-8">
           <div>
-            <SchoolBrand className="text-white" />
-            <p className="mt-2 text-sm font-medium text-white/72">{schoolConfig.descriptor}</p>
+            <SchoolBrand
+              variant="full-dark"
+              className="w-fit"
+              imageClassName="h-20 max-w-[300px]"
+            />
             <p className="mt-4 max-w-sm text-sm leading-6 text-white/72">
               {schoolConfig.description} Uma experiência integrada para gestão, comunicação e acompanhamento escolar.
             </p>

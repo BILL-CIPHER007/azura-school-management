@@ -22,11 +22,11 @@ A escola cliente ou demonstrativa deve continuar representada pelos dados do ban
 
 Os arquivos padrao ficam em:
 
-- `public/branding/logo.svg`
-- `public/branding/logo-compact.svg`
-- `public/branding/logo-horizontal.svg`
+- `public/branding/azura-completa.png`: simbolo, nome e descriptor.
+- `public/branding/azura-longa.png`: simbolo e nome.
+- `public/branding/azura-curta.png`: simbolo.
 
-Substitua os SVGs mantendo os mesmos nomes, ou ajuste os caminhos em `schoolConfig.branding`.
+Substitua os PNGs mantendo os mesmos nomes, ou ajuste os caminhos em `schoolConfig.branding.logos`.
 
 Se uma marca nao estiver configurada, o componente `SchoolBrand` usa as iniciais definidas em `schoolConfig.initials`.
 

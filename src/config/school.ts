@@ -1,9 +1,13 @@
 import type { UserRole } from "@prisma/client";
 
 export type SchoolBranding = {
-  logo: string | null;
-  logoCompact: string | null;
-  logoHorizontal: string | null;
+  logos: {
+    full: string;
+    fullDark: string;
+    horizontal: string;
+    horizontalDark: string;
+    symbol: string;
+  };
   favicon: string;
 };
 
@@ -93,10 +97,14 @@ export const schoolConfig: SchoolConfig = {
     description: "Plataforma integrada para gestão acadêmica, comunicação e acompanhamento escolar."
   },
   branding: {
-    logo: "/branding/logo.svg",
-    logoCompact: "/branding/logo-compact.svg",
-    logoHorizontal: "/branding/logo-horizontal.svg",
-    favicon: "/branding/logo-compact.svg"
+    logos: {
+      full: "/branding/azura-completa.png",
+      fullDark: "/branding/azura-completa-branca.png",
+      horizontal: "/branding/azura-longa.png",
+      horizontalDark: "/branding/azura-longa-branca.png",
+      symbol: "/branding/azura-curta.png"
+    },
+    favicon: "/branding/azura-curta.png"
   },
   theme: {
     primary: "221 82% 47%",

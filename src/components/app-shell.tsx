@@ -22,7 +22,12 @@ export function AppShell({
       <aside className="admin-sidebar relative border-b bg-school-navy text-white shadow-lg lg:sticky lg:top-0 lg:flex lg:h-dvh lg:min-h-0 lg:flex-col lg:border-b-0">
         <div className="absolute inset-x-0 bottom-0 h-32 bg-[linear-gradient(143deg,transparent_0_34%,hsl(var(--school-blue-700))_35%_56%,hsl(var(--school-primary))_57%_100%)] opacity-80" />
         <div className="relative flex h-20 items-center justify-between px-5 lg:h-auto lg:flex-col lg:items-start lg:gap-3 lg:px-5 lg:py-5 xl:py-6">
-          <SchoolBrand href="/admin/dashboard" className="text-base font-semibold text-white" />
+          <SchoolBrand
+            href="/admin/dashboard"
+            variant="horizontal-dark"
+            className="w-fit"
+            imageClassName="h-10 max-w-[162px]"
+          />
           <DemoBadge className="hidden bg-white/10 text-white ring-white/20 lg:inline-flex" />
         </div>
 
