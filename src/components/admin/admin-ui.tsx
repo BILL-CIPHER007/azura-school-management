@@ -18,7 +18,7 @@ export function AdminPageHeader({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-lg border border-border bg-surface p-5 shadow-sm sm:p-6">
+    <div className="relative overflow-hidden rounded-lg border border-border bg-surface p-4 shadow-sm sm:p-5">
       <div className="pointer-events-none absolute right-0 top-0 h-24 w-56 bg-[linear-gradient(145deg,transparent_0_42%,hsl(var(--school-primary-soft))_43%_64%,hsl(var(--school-blue-100))_65%_100%)]" />
       <div className="relative flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
@@ -71,14 +71,14 @@ export function AdminMetric({
   tone?: "neutral" | "success" | "warning" | "danger" | "info";
 }) {
   return (
-    <Card className="min-h-[118px] overflow-hidden shadow-sm">
-      <CardHeader className="flex-row items-start justify-between gap-3 pb-2">
+    <Card className="min-h-[108px] overflow-hidden shadow-sm">
+      <CardHeader className="flex-row items-start justify-between gap-2 pb-1.5">
         <div>
-          <CardDescription className="text-sm text-text-secondary">{label}</CardDescription>
-          <CardTitle className="mt-1 text-3xl font-semibold text-school-navy">{value}</CardTitle>
+          <CardDescription className="text-[13px] text-text-secondary">{label}</CardDescription>
+          <CardTitle className="mt-1 text-2xl font-semibold text-school-navy">{value}</CardTitle>
         </div>
         {Icon ? (
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-school-primary text-white shadow-sm">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-school-primary text-white shadow-sm">
             <Icon className="h-5 w-5" />
           </span>
         ) : null}
@@ -109,14 +109,14 @@ export function AdminSection({
 }) {
   return (
     <section id={id} className={cn("overflow-hidden rounded-lg border border-border bg-surface shadow-sm", className)}>
-      <div className="flex flex-col gap-2 border-b border-border bg-surface px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-2 border-b border-border bg-surface px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="font-semibold text-school-navy">{title}</h2>
           {description ? <p className="mt-1 text-sm text-text-secondary">{description}</p> : null}
         </div>
         {action}
       </div>
-      <div className="p-5">{children}</div>
+      <div className="p-4">{children}</div>
     </section>
   );
 }

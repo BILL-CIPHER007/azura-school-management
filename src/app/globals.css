@@ -101,7 +101,7 @@ body {
   }
 
   .admin-root .page-shell {
-    @apply max-w-[1440px] gap-5 px-4 py-5 sm:px-6 lg:px-8;
+    @apply max-w-[1440px] gap-4 px-4 py-4 sm:px-5 lg:px-6;
   }
 
   .admin-sidebar {

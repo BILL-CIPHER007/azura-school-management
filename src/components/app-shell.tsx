@@ -18,15 +18,15 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="admin-root min-h-screen bg-background lg:grid lg:grid-cols-[264px_1fr]">
+    <div className="admin-root min-h-screen bg-background lg:grid lg:grid-cols-[240px_1fr]">
       <aside className="admin-sidebar relative border-b bg-school-navy text-white shadow-lg lg:sticky lg:top-0 lg:flex lg:h-dvh lg:min-h-0 lg:flex-col lg:border-b-0">
         <div className="absolute inset-x-0 bottom-0 h-32 bg-[linear-gradient(143deg,transparent_0_34%,hsl(var(--school-blue-700))_35%_56%,hsl(var(--school-primary))_57%_100%)] opacity-80" />
-        <div className="relative flex h-20 items-center justify-between px-5 lg:h-auto lg:flex-col lg:items-start lg:gap-3 lg:px-5 lg:py-5 xl:py-6">
+        <div className="relative flex h-20 items-center justify-between px-5 lg:h-auto lg:flex-col lg:items-start lg:gap-3 lg:px-4 lg:py-4 xl:py-5">
           <SchoolBrand
             href="/admin/dashboard"
             variant="horizontal-dark"
             className="w-fit"
-            imageClassName="h-10 max-w-[162px]"
+            imageClassName="h-9 max-w-[150px]"
           />
           <DemoBadge className="hidden bg-white/10 text-white ring-white/20 lg:inline-flex" />
         </div>
@@ -42,7 +42,7 @@ export function AppShell({
       </aside>
 
       <div className="min-w-0">
-        <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-border bg-surface/95 px-4 backdrop-blur sm:px-6 lg:px-8">
+        <header className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-border bg-surface/95 px-4 backdrop-blur sm:px-5 lg:px-6">
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-text-primary">{schoolConfig.name}</p>
             <div className="mt-1 flex items-center gap-2 text-xs text-text-muted">

@@ -31,12 +31,12 @@ export default async function AdminDashboardPage() {
 
   return (
     <main className="page-shell">
-      <section className="relative overflow-hidden rounded-lg border border-border bg-surface p-5 shadow-sm sm:p-6">
+      <section className="relative overflow-hidden rounded-lg border border-border bg-surface p-4 shadow-sm sm:p-5">
         <div className="pointer-events-none absolute right-0 top-0 hidden h-full w-[34%] bg-[linear-gradient(145deg,transparent_0_28%,hsl(var(--school-primary-soft))_29%_54%,hsl(var(--school-blue-700))_55%_73%,hsl(var(--school-navy))_74%_100%)] lg:block" />
-        <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-sm font-medium text-text-muted">Dashboard administrativo</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-normal text-school-navy">Olá, {firstName}!</h1>
+            <h1 className="mt-1.5 text-3xl font-semibold tracking-normal text-school-navy">Olá, {firstName}!</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-text-secondary">
               Aqui está o resumo geral da escola: matrículas, turmas, frequência e pontos de atenção.
             </p>
@@ -58,7 +58,7 @@ export default async function AdminDashboardPage() {
         </div>
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <AdminMetric label="Alunos ativos" value={dashboard.metrics.students} detail="na base" icon={GraduationCap} />
         <AdminMetric
           label="Matrículas ativas"
@@ -84,7 +84,7 @@ export default async function AdminDashboardPage() {
         />
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[1.02fr_0.98fr_0.9fr]">
+      <section className="grid gap-4 xl:grid-cols-[1.02fr_0.98fr_0.9fr]">
         <AdminSection
           title="Matrículas recentes"
           action={
@@ -181,7 +181,7 @@ export default async function AdminDashboardPage() {
         </AdminSection>
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[0.78fr_1.22fr]">
+      <section className="grid gap-4 xl:grid-cols-[0.78fr_1.22fr]">
         <AdminSection
           title="Ações rápidas"
           description="Atalhos para os fluxos administrativos principais."
