@@ -18,7 +18,7 @@ export function StudentNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="relative flex gap-1 overflow-x-auto px-4 pb-4 lg:flex-1 lg:flex-col lg:overflow-y-auto lg:px-4 lg:pb-6">
+    <nav className="relative flex gap-1 overflow-x-auto px-4 pb-4 lg:flex-1 lg:flex-col lg:overflow-y-auto lg:px-3 lg:pb-4">
       {items.map((item) => {
         const Icon = item.icon;
         const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
@@ -28,7 +28,7 @@ export function StudentNav() {
             key={item.href}
             href={item.href}
             className={cn(
-              "inline-flex min-w-fit items-center gap-3 rounded-md px-3.5 py-3 text-sm font-medium transition-colors lg:w-full",
+              "inline-flex min-w-fit items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors lg:min-h-9 lg:w-full",
               active ? "bg-school-primary text-white shadow-sm" : "text-white/78 hover:bg-white/10 hover:text-white"
             )}
           >

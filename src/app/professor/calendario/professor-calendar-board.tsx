@@ -91,7 +91,7 @@ export function ProfessorCalendarBoard({ events }: { events: CalendarEventItem[]
   }
 
   return (
-    <section className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+    <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
       <TeacherSection
         title={monthTitle(activeMonth)}
         description="Visão mensal simples da agenda escolar."

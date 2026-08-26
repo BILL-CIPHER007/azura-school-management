@@ -469,7 +469,7 @@ function SummaryTab({
   pendingItems: ActionItem[];
 }) {
   return (
-    <div className="grid gap-5">
+    <div className="grid gap-4">
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <TeacherMetric label="Alunos" value={students} icon={UsersRound} />
         <TeacherMetric label="Média geral" value={averageGrade.toFixed(1)} icon={BarChart3} />
@@ -482,7 +482,7 @@ function SummaryTab({
         />
       </section>
 
-      <section className="grid gap-5 lg:grid-cols-3">
+      <section className="grid gap-4 lg:grid-cols-3">
         <TeacherSection title="Atividade recente">
           <div className="space-y-3">
             {recentActivity.length ? (

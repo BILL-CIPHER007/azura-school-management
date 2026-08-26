@@ -24,7 +24,7 @@ export default async function ProfessorClassroomsPage() {
           <Link
             key={classroom.id}
             href={`/professor/turmas/${classroom.id}`}
-            className="group flex min-h-56 flex-col justify-between rounded-lg border border-border bg-surface p-5 shadow-sm transition-colors hover:border-school-blue-100 hover:bg-school-primary-soft/35"
+            className="group flex min-h-52 flex-col justify-between rounded-lg border border-border bg-surface p-4 shadow-sm transition-colors hover:border-school-blue-100 hover:bg-school-primary-soft/35"
           >
             <div>
               <div className="flex items-start justify-between gap-3">
@@ -37,7 +37,7 @@ export default async function ProfessorClassroomsPage() {
                 <ArrowRight className="h-5 w-5 shrink-0 text-text-muted transition-transform group-hover:translate-x-1 group-hover:text-school-primary" />
               </div>
 
-              <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
+              <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                 <div className="rounded-md bg-surface-muted p-3">
                   <p className="text-text-muted">Turno</p>
                   <strong className="mt-1 block text-school-navy">{shiftLabel(classroom.shift)}</strong>
@@ -60,7 +60,7 @@ export default async function ProfessorClassroomsPage() {
               </div>
             </div>
 
-            <div className="mt-5 flex justify-end">
+            <div className="mt-4 flex justify-end">
               <Button asChild size="sm">
                 <span>Abrir turma</span>
               </Button>

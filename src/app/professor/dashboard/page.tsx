@@ -91,7 +91,7 @@ export default async function ProfessorDashboardPage() {
         )}
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[1.08fr_0.92fr]">
+      <section className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
         <TeacherSection title="Aulas de hoje" description="Atalhos rápidos para abrir a turma da aula.">
           <div className="space-y-3">
             <div className="divide-y divide-border">
@@ -123,7 +123,7 @@ export default async function ProfessorDashboardPage() {
                 );
               })}
               {!dashboard.todayClasses.length ? (
-                <div className="rounded-md bg-surface-muted p-4 text-sm">
+                <div className="rounded-md bg-surface-muted p-3 text-sm">
                   <strong className="block text-school-navy">Nenhuma aula hoje</strong>
                   <p className="mt-1 text-text-secondary">Você não possui aulas programadas para este dia.</p>
                 </div>
@@ -169,7 +169,7 @@ export default async function ProfessorDashboardPage() {
         </TeacherSection>
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-2">
+      <section className="grid gap-4 xl:grid-cols-2">
         <TeacherSection
           title="Próximos eventos"
           action={

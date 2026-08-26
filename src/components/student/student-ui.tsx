@@ -17,7 +17,7 @@ export function StudentPageHeader({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-lg border border-border bg-surface p-5 shadow-sm sm:p-6">
+    <div className="relative overflow-hidden rounded-lg border border-border bg-surface p-4 shadow-sm sm:p-5">
       <div className="pointer-events-none absolute right-0 top-0 h-24 w-56 bg-[linear-gradient(145deg,transparent_0_42%,hsl(var(--school-primary-soft))_43%_64%,hsl(var(--school-blue-100))_65%_100%)]" />
       <div className="relative flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
@@ -54,16 +54,16 @@ export function StudentMetric({
   }[tone];
 
   return (
-    <div className="rounded-lg border border-border bg-surface p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
+    <div className="rounded-lg border border-border bg-surface p-3.5 shadow-sm">
+      <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-sm text-text-secondary">{label}</p>
-          <strong className={cn("mt-1 block truncate text-3xl font-semibold text-school-navy", valueClassName)}>
+          <p className="text-[13px] text-text-secondary">{label}</p>
+          <strong className={cn("mt-1 block truncate text-2xl font-semibold text-school-navy", valueClassName)}>
             {value}
           </strong>
         </div>
         {Icon ? (
-          <span className={cn("flex h-12 w-12 shrink-0 items-center justify-center rounded-lg shadow-sm", toneClass)}>
+          <span className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-lg shadow-sm", toneClass)}>
             <Icon className="h-5 w-5" />
           </span>
         ) : null}
@@ -94,7 +94,7 @@ export function StudentSection({
 }) {
   return (
     <section className={cn("overflow-hidden rounded-lg border border-border bg-surface shadow-sm", className)}>
-      <div className="flex flex-col gap-2 border-b border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="font-semibold text-school-navy">{title}</h2>
           {description ? <p className="mt-1 text-sm text-text-secondary">{description}</p> : null}
@@ -108,7 +108,7 @@ export function StudentSection({
           action
         )}
       </div>
-      <div className={cn("p-5", bodyClassName)}>{children}</div>
+      <div className={cn("p-4", bodyClassName)}>{children}</div>
     </section>
   );
 }

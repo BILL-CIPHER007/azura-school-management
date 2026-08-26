@@ -16,22 +16,22 @@ export function GuardianShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="guardian-root min-h-screen bg-background lg:grid lg:grid-cols-[264px_1fr]">
+    <div className="guardian-root min-h-screen bg-background lg:grid lg:grid-cols-[240px_1fr]">
       <aside className="relative overflow-hidden border-b bg-school-navy text-white shadow-lg lg:sticky lg:top-0 lg:flex lg:h-screen lg:min-h-0 lg:flex-col lg:border-b-0">
         <div className="absolute inset-x-0 bottom-0 h-32 bg-[linear-gradient(143deg,transparent_0_34%,hsl(var(--school-blue-700))_35%_56%,hsl(var(--school-primary))_57%_100%)] opacity-70" />
-        <div className="relative flex h-20 items-center justify-between px-5 lg:h-auto lg:flex-col lg:items-start lg:gap-5 lg:px-5 lg:py-8">
+        <div className="relative flex h-20 items-center justify-between px-5 lg:h-auto lg:flex-col lg:items-start lg:gap-3 lg:px-4 lg:py-5">
           <SchoolBrand
             href="/responsavel/dashboard"
             variant="horizontal-dark"
             className="w-fit"
-            imageClassName="h-10 max-w-[162px]"
+            imageClassName="h-9 max-w-[150px]"
           />
           <DemoBadge className="hidden bg-white/10 text-white ring-white/20 lg:inline-flex" />
         </div>
 
         <GuardianNav />
 
-        <form action={logout} className="relative mt-auto hidden border-t border-white/10 p-4 lg:block">
+        <form action={logout} className="relative mt-auto hidden border-t border-white/10 p-3 lg:block">
           <Button type="submit" variant="ghost" className="w-full justify-start text-white hover:bg-white/10 hover:text-white">
             <LogOut className="h-4 w-4" />
             Sair
@@ -40,7 +40,7 @@ export function GuardianShell({
       </aside>
 
       <div className="min-w-0">
-        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-border bg-surface/95 px-4 backdrop-blur sm:px-6 lg:px-8">
+        <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-border bg-surface/95 px-4 backdrop-blur sm:px-5 lg:px-6">
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-text-primary">Área do responsável</p>
             <div className="mt-1 flex items-center gap-2 text-xs text-text-muted">

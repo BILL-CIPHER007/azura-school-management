@@ -33,7 +33,7 @@ export default async function StudentProfilePage() {
       />
 
       <StudentSection title="Identificação">
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
           <Avatar name={portal.student.fullName} className="h-20 w-20 text-xl" />
           <div className="min-w-0">
             <h2 className="text-2xl font-semibold tracking-normal text-school-navy">{portal.student.fullName}</h2>
