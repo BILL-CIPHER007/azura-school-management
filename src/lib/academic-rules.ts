@@ -10,15 +10,16 @@ export function getAcademicStatus(
   context: AcademicStatusContext = {}
 ) {
   const { passingGrade, recoveryGrade, minimumAttendance } = schoolConfig.academic;
+  const visibleAverageScore = visibleGrade(averageScore);
 
-  if (averageScore === 0) return "Cursando";
+  if (visibleAverageScore === 0) return "Cursando";
   if (context.isFinal === false) {
-    if (averageScore < passingGrade || attendanceRate < minimumAttendance) return "Recuperação";
+    if (visibleAverageScore < passingGrade || attendanceRate < minimumAttendance) return "Recuperação";
     return "Cursando";
   }
 
-  if (averageScore >= passingGrade && attendanceRate >= minimumAttendance) return "Aprovado";
-  if (averageScore >= recoveryGrade && attendanceRate >= minimumAttendance) return "Recuperação";
+  if (visibleAverageScore >= passingGrade && attendanceRate >= minimumAttendance) return "Aprovado";
+  if (visibleAverageScore >= recoveryGrade && attendanceRate >= minimumAttendance) return "Recuperação";
   return "Reprovado";
 }
 
