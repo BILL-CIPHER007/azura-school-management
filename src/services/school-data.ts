@@ -1,6 +1,12 @@
 import type { AttendanceStatus, EnrollmentStatus, Prisma, UserStatus } from "@prisma/client";
 import { schoolConfig } from "@/config/school";
-import { isAttendanceBelowMinimum, isPassingGrade } from "@/lib/academic-rules";
+import {
+  getAcademicStatusFromSubjects,
+  getOverallAverageFromSubjects,
+  getSubjectAverages,
+  isAttendanceBelowMinimum,
+  isPassingVisibleGrade
+} from "@/lib/academic-rules";
 import { guardianAnnouncementWhere, studentAnnouncementWhere, teacherAnnouncementWhere } from "@/lib/announcements";
 import { prisma } from "@/lib/prisma";
 import { average, gradeSituation } from "@/lib/utils";
@@ -10,20 +16,25 @@ function academicTimelineStart() {
 }
 
 type AttentionEnrollment = {
-  grades: Array<{ average: number }>;
-  attendances: Array<{ status: AttendanceStatus }>;
+  grades: Array<{ average: number; subject?: { id?: string; name: string } }>;
+  attendances: Array<{ status: AttendanceStatus; subject?: { id?: string; name: string } }>;
 };
 
 function summarizeAttentionEnrollment(enrollment: AttentionEnrollment) {
-  const averageGrade = average(enrollment.grades.map((grade) => grade.average));
+  const subjectAverages = subjectAveragesFromGrades(enrollment.grades);
+  const averageGrade = subjectAverages.length
+    ? getOverallAverageFromSubjects(subjectAverages)
+    : average(enrollment.grades.map((grade) => grade.average));
   const attendanceRate = enrollment.attendances.length
     ? (enrollment.attendances.filter((attendance) => attendance.status === "PRESENT").length /
         enrollment.attendances.length) *
       100
     : 0;
-  const situation = gradeSituation(averageGrade, attendanceRate, { isFinal: false });
+  const situation = subjectAverages.length
+    ? getAcademicStatusFromSubjects(subjectAverages, attendanceRate, { isFinal: false }, subjectAttendanceRatesFromAttendances(enrollment.attendances))
+    : gradeSituation(averageGrade, attendanceRate, { isFinal: false });
   const isAttendanceLow = enrollment.attendances.length > 0 && isAttendanceBelowMinimum(attendanceRate);
-  const isGradeLow = averageGrade > 0 && !isPassingGrade(averageGrade);
+  const isGradeLow = subjectAverages.some((subject) => subject.average > 0 && !isPassingVisibleGrade(subject.average));
   const reasons = [
     isAttendanceLow ? "Frequência baixa" : null,
     isGradeLow || situation === "Recuperação" ? "Em recuperação" : null
@@ -43,18 +54,24 @@ function attendanceRateFromStatuses(attendances: Array<{ status: AttendanceStatu
   return (present / attendances.length) * 100;
 }
 
-function subjectAveragesFromGrades(grades: Array<{ average: number; subject: { name: string } }>) {
-  const grouped = new Map<string, number[]>();
-  for (const grade of grades) {
-    const current = grouped.get(grade.subject.name) ?? [];
-    current.push(grade.average);
-    grouped.set(grade.subject.name, current);
+function subjectAveragesFromGrades(grades: Array<{ average: number; subject?: { id?: string; name: string } }>) {
+  return getSubjectAverages(grades.filter((grade) => grade.subject) as Array<{ average: number; subject: { id?: string; name: string } }>);
+}
+
+function subjectAttendanceRatesFromAttendances(attendances: Array<{ status: AttendanceStatus; subject?: { id?: string; name: string } }>) {
+  const grouped = new Map<string, { present: number; total: number }>();
+
+  for (const attendance of attendances) {
+    if (!attendance.subject) continue;
+
+    const key = attendance.subject.id ?? attendance.subject.name;
+    const current = grouped.get(key) ?? { present: 0, total: 0 };
+    current.total += 1;
+    if (attendance.status === "PRESENT") current.present += 1;
+    grouped.set(key, current);
   }
 
-  return [...grouped.entries()].map(([subject, values]) => ({
-    subject,
-    average: average(values)
-  }));
+  return [...grouped.values()].map((item) => (item.total ? (item.present / item.total) * 100 : 0));
 }
 
 function attentionReasons(input: {
@@ -63,7 +80,7 @@ function attentionReasons(input: {
   attendanceTotal: number;
   subjectAverages: Array<{ subject: string; average: number }>;
 }) {
-  const lowSubjects = input.subjectAverages.filter((subject) => subject.average > 0 && !isPassingGrade(subject.average));
+  const lowSubjects = input.subjectAverages.filter((subject) => subject.average > 0 && !isPassingVisibleGrade(subject.average));
   const reasons = [
     input.attendanceTotal > 0 && isAttendanceBelowMinimum(input.attendanceRate)
       ? "Frequência abaixo do mínimo"
@@ -73,8 +90,7 @@ function attentionReasons(input: {
           .slice(0, 2)
           .map((subject) => subject.subject)
           .join(", ")}${lowSubjects.length > 2 ? ` e mais ${lowSubjects.length - 2}` : ""}`
-      : null,
-    input.averageGrade > 0 && !isPassingGrade(input.averageGrade) ? "Em recuperação" : null
+      : null
   ].filter(Boolean) as string[];
 
   return [...new Set(reasons)];
@@ -154,8 +170,8 @@ export async function getAdminDashboard(schoolId: string) {
         enrollments: {
           where: { status: "ACTIVE" },
           include: {
-            grades: { select: { average: true } },
-            attendances: { select: { status: true } }
+            grades: { select: { average: true, subject: { select: { id: true, name: true } } } },
+            attendances: { select: { status: true, subject: { select: { id: true, name: true } } } }
           }
         }
       },
@@ -164,8 +180,8 @@ export async function getAdminDashboard(schoolId: string) {
     prisma.enrollment.findMany({
       where: { schoolId, status: "ACTIVE" },
       select: {
-        grades: { select: { average: true } },
-        attendances: { select: { status: true } }
+        grades: { select: { average: true, subject: { select: { id: true, name: true } } } },
+        attendances: { select: { status: true, subject: { select: { id: true, name: true } } } }
       }
     })
   ]);
@@ -555,7 +571,7 @@ export async function getAdminAttentionStudents(schoolId: string) {
       student: true,
       classroom: true,
       grades: { include: { subject: true } },
-      attendances: { select: { status: true } }
+      attendances: { select: { status: true, subject: { select: { id: true, name: true } } } }
     },
     orderBy: { enrolledAt: "desc" },
     take: 120
@@ -648,7 +664,7 @@ export async function getAdminReports(
       },
       attendances: {
         where: attendanceWhere,
-        select: { status: true },
+        select: { status: true, subject: { select: { id: true, name: true } } },
         orderBy: { date: "desc" }
       }
     },
@@ -657,9 +673,14 @@ export async function getAdminReports(
 
   const enrollmentSummaries = enrollments.map((enrollment) => {
     const subjectAverages = subjectAveragesFromGrades(enrollment.grades);
-    const averageGrade = average(enrollment.grades.map((grade) => grade.average));
+    const averageGrade = getOverallAverageFromSubjects(subjectAverages);
     const attendanceRate = attendanceRateFromStatuses(enrollment.attendances);
-    const situation = gradeSituation(averageGrade, attendanceRate, { isFinal: false });
+    const situation = getAcademicStatusFromSubjects(
+      subjectAverages,
+      attendanceRate,
+      { isFinal: false },
+      subjectAttendanceRatesFromAttendances(enrollment.attendances)
+    );
     const reasons = attentionReasons({
       averageGrade,
       attendanceRate,
@@ -1337,7 +1358,8 @@ export function summarizeEnrollment(
     };
   }
 
-  const averageGrade = average(enrollment.grades.map((grade) => grade.average));
+  const subjectAverages = subjectAveragesFromGrades(enrollment.grades);
+  const averageGrade = getOverallAverageFromSubjects(subjectAverages);
   const attendanceRate = enrollment.attendances.length
     ? (enrollment.attendances.filter((attendance) => attendance.status === "PRESENT").length /
         enrollment.attendances.length) *
@@ -1346,21 +1368,16 @@ export function summarizeEnrollment(
   const absences = enrollment.attendances.filter((attendance) => attendance.status === "ABSENT")
     .length;
 
-  const grouped = new Map<string, number[]>();
-  for (const grade of enrollment.grades) {
-    const current = grouped.get(grade.subject.name) ?? [];
-    current.push(grade.average);
-    grouped.set(grade.subject.name, current);
-  }
-
   return {
     averageGrade,
     attendanceRate,
     absences,
-    situation: gradeSituation(averageGrade, attendanceRate, options),
-    subjectAverages: [...grouped.entries()].map(([subject, values]) => ({
-      subject,
-      average: average(values)
-    }))
+    situation: getAcademicStatusFromSubjects(
+      subjectAverages,
+      attendanceRate,
+      options,
+      subjectAttendanceRatesFromAttendances(enrollment.attendances)
+    ),
+    subjectAverages
   };
 }

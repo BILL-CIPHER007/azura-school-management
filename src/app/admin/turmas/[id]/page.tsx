@@ -6,9 +6,15 @@ import { ProgressBar } from "@/components/dashboard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { academicSituationTone, shiftLabel } from "@/lib/admin-labels";
-import { isAttendanceBelowMinimum, isPassingGrade } from "@/lib/academic-rules";
+import {
+  getAcademicStatusFromSubjects,
+  getOverallAverageFromSubjects,
+  getSubjectAverages,
+  isAttendanceBelowMinimum,
+  isPassingVisibleGrade
+} from "@/lib/academic-rules";
 import { requireSession } from "@/lib/auth";
-import { average, formatPercent, gradeSituation } from "@/lib/utils";
+import { average, formatPercent } from "@/lib/utils";
 import { getClassroomDetails } from "@/services/school-data";
 
 export const dynamic = "force-dynamic";
@@ -50,7 +56,7 @@ export default async function ClassroomDetailsPage({
 
   const activeTab = tabs.some((tab) => tab.id === query.tab) ? query.tab ?? "resumo" : "resumo";
   const gradeAverage = average(
-    classroom.enrollments.flatMap((enrollment) => enrollment.grades.map((grade) => grade.average))
+    classroom.enrollments.map((enrollment) => getOverallAverageFromSubjects(getSubjectAverages(enrollment.grades)))
   );
   const attendanceValues = classroom.enrollments.flatMap((enrollment) =>
     enrollment.attendances.map((attendance) => attendance.status)
@@ -60,13 +66,14 @@ export default async function ClassroomDetailsPage({
   const academicYearEnded = classroom.academicYear.endsAt < new Date();
   const academicYearStatus = academicYearStatusLabel(classroom.academicYear);
   const students = classroom.enrollments.map((enrollment) => {
-    const studentAverage = average(enrollment.grades.map((grade) => grade.average));
+    const subjectAverages = getSubjectAverages(enrollment.grades);
+    const studentAverage = getOverallAverageFromSubjects(subjectAverages);
     const studentAttendance = calculateAttendanceRate(enrollment.attendances);
     return {
       enrollment,
       average: studentAverage,
       attendance: studentAttendance,
-      situation: gradeSituation(studentAverage, studentAttendance, { isFinal: academicYearEnded })
+      situation: getAcademicStatusFromSubjects(subjectAverages, studentAttendance, { isFinal: academicYearEnded })
     };
   });
   const sortedStudentsByAttendance = [...students].sort(
@@ -93,7 +100,7 @@ export default async function ClassroomDetailsPage({
     return {
       subjectName: subject.name,
       average: average(studentAverages),
-      belowAverage: studentAverages.filter((value) => !isPassingGrade(value)).length
+      belowAverage: studentAverages.filter((value) => !isPassingVisibleGrade(value)).length
     };
   });
 
