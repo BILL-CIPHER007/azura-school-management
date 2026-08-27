@@ -33,10 +33,10 @@ function calculateAttendanceRate(attendances: Array<{ status: string }>) {
   return (present / attendances.length) * 100;
 }
 
-function academicYearStatusLabel(academicYear: { startsAt: Date; endsAt: Date; isActive: boolean }) {
+function academicYearStatusLabel(academicYear: { startsAt: Date; endsAt: Date; closedAt?: Date | null; isActive: boolean }) {
   const now = new Date();
+  if (academicYear.closedAt) return "encerrado";
   if (academicYear.isActive) return "ativo";
-  if (academicYear.endsAt < now) return "encerrado";
   if (academicYear.startsAt > now) return "futuro";
   return "em andamento";
 }
@@ -63,7 +63,7 @@ export default async function ClassroomDetailsPage({
   );
   const attendance = calculateAttendanceRate(attendanceValues.map((status) => ({ status })));
   const hasAttendanceRecords = attendanceValues.length > 0;
-  const academicYearEnded = classroom.academicYear.endsAt < new Date();
+  const academicYearEnded = Boolean(classroom.academicYear.closedAt);
   const academicYearStatus = academicYearStatusLabel(classroom.academicYear);
   const students = classroom.enrollments.map((enrollment) => {
     const subjectAverages = getSubjectAverages(enrollment.grades);

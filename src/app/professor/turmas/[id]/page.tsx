@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { schoolConfig } from "@/config/school";
+import { academicPeriodClosedMessage, findAcademicPeriodForDate, isAcademicPeriodClosed } from "@/lib/academic-closing";
 import { requireSession } from "@/lib/auth";
 import { isAttendanceBelowMinimum, isPassingGrade } from "@/lib/academic-rules";
 import { attendanceLabel, shiftLabel } from "@/lib/teacher-labels";
@@ -235,6 +236,7 @@ export default async function TeacherClassroomPage({
     subjectId?: string;
     periodId?: string;
     data?: string;
+    erro?: string;
     salvo?: string;
     freqView?: string;
     historicoDisciplina?: string;
@@ -258,6 +260,14 @@ export default async function TeacherClassroomPage({
   const periodId = query.periodId ?? periods[0]?.id ?? "";
   const attendanceDate = query.data ?? schoolConfig.academic.teacherDefaultAttendanceDate;
   const frequencyView = query.freqView === "historico" ? "historico" : "registrar";
+  const academicYearClosed = Boolean(classroom.academicYear.closedAt);
+  const selectedAttendancePeriod = findAcademicPeriodForDate(periods, new Date(`${attendanceDate}T12:00:00.000Z`));
+  const attendanceReadOnly = academicYearClosed || !selectedAttendancePeriod || isAcademicPeriodClosed(selectedAttendancePeriod);
+  const attendanceReadOnlyMessage = !selectedAttendancePeriod
+    ? "A data selecionada não pertence a um período acadêmico cadastrado."
+    : academicYearClosed
+      ? "O ano letivo está encerrado para lançamentos."
+      : academicPeriodClosedMessage(selectedAttendancePeriod.name);
 
   const allGrades = classroom.enrollments.flatMap((enrollment) => enrollment.grades);
   const allAttendances = classroom.enrollments.flatMap((enrollment) =>
@@ -295,7 +305,11 @@ export default async function TeacherClassroomPage({
   const attendanceRate = allAttendances.length
     ? (allAttendances.filter((attendance) => attendance.status === "PRESENT").length / allAttendances.length) * 100
     : 0;
-  const pendingRecords = classroom.enrollments.length * assignments.length * periods.length - allGrades.length;
+  const openPeriodsForPending = academicYearClosed ? [] : periods.filter((period) => !period.closedAt);
+  const openPeriodIds = new Set(openPeriodsForPending.map((period) => period.id));
+  const gradesInOpenPeriods = allGrades.filter((grade) => openPeriodIds.has(grade.academicPeriodId));
+  const pendingRecords =
+    classroom.enrollments.length * assignments.length * openPeriodsForPending.length - gradesInOpenPeriods.length;
   const currentAttendanceCount = classroom.enrollments.filter((enrollment) =>
     enrollment.attendances.some(
       (attendance) => attendance.subjectId === activeSubjectId && attendance.date.toISOString().slice(0, 10) === attendanceDate
@@ -310,7 +324,7 @@ export default async function TeacherClassroomPage({
       description: `${Math.max(0, pendingRecords)} registros de avaliação ainda não foram lançados.`
     });
   }
-  if (missingAttendanceCount > 0) {
+  if (missingAttendanceCount > 0 && !attendanceReadOnly) {
     pendingItems.push({
       id: "pending-attendance",
       title: "Chamada incompleta",
@@ -351,6 +365,14 @@ export default async function TeacherClassroomPage({
         </Badge>
       ) : null}
 
+      {query.erro === "periodo-encerrado" || query.erro === "periodo-data" ? (
+        <Badge variant="warning" className="w-fit">
+          {query.erro === "periodo-data"
+            ? "A data selecionada não pertence a um período acadêmico."
+            : "Período encerrado para lançamentos acadêmicos."}
+        </Badge>
+      ) : null}
+
       <div className="teacher-surface">
         <ClassTabs classroomId={classroom.id} activeTab={activeTab} subjectId={activeSubjectId} periodId={periodId} />
         <div className="p-5">
@@ -387,7 +409,7 @@ export default async function TeacherClassroomPage({
                   situation: getTeacherStudentSituation(
                     gradeAverage,
                     studentAttendance,
-                    classroom.academicYear.endsAt < new Date()
+                    academicYearClosed
                   ),
                   subjectSummaries: buildStudentSubjectSummaries(enrollment.grades)
                 };
@@ -402,6 +424,7 @@ export default async function TeacherClassroomPage({
               periods={periods}
               activeSubjectId={activeSubjectId}
               periodId={periodId}
+              academicYearClosed={academicYearClosed}
               saved={query.salvo === "1"}
               rows={classroom.enrollments.map((enrollment) => {
                 const grade = enrollment.grades.find(
@@ -443,6 +466,8 @@ export default async function TeacherClassroomPage({
                   currentStatus: current?.status
                 };
               })}
+              readOnly={attendanceReadOnly}
+              readOnlyMessage={attendanceReadOnlyMessage}
             />
           ) : null}
         </div>
@@ -663,14 +688,16 @@ function GradesTab({
   activeSubjectId,
   periodId,
   rows,
+  academicYearClosed,
   saved
 }: {
   classroomId: string;
   assignments: Array<{ subjectId: string; subject: { id: string; name: string } }>;
-  periods: Array<{ id: string; name: string }>;
+  periods: Array<{ id: string; name: string; closedAt?: Date | null }>;
   activeSubjectId: string;
   periodId: string;
   rows: Array<{ enrollmentId: string; studentName: string; av1: number; av2: number; assignment: number }>;
+  academicYearClosed: boolean;
   saved: boolean;
 }) {
   return (
@@ -682,6 +709,7 @@ function GradesTab({
       periodId={periodId}
       rows={rows}
       minimumGrade={schoolConfig.academic.passingGrade}
+      academicYearClosed={academicYearClosed}
       saved={saved}
     />
   );
@@ -699,7 +727,9 @@ function AttendanceTab({
   historyFilters,
   sessions,
   selectedSession,
-  students
+  students,
+  readOnly,
+  readOnlyMessage
 }: {
   classroomId: string;
   assignments: Array<{ subjectId: string; subject: { id: string; name: string } }>;
@@ -708,11 +738,13 @@ function AttendanceTab({
   classroomName: string;
   date: string;
   view: "registrar" | "historico";
-  periods: Array<{ id: string; name: string; startsAt: Date; endsAt: Date }>;
+  periods: Array<{ id: string; name: string; startsAt: Date; endsAt: Date; closedAt?: Date | null }>;
   historyFilters: { subjectId: string; periodId: string; startDate: string; endDate: string };
   sessions: AttendanceSession[];
   selectedSession: AttendanceSession | null;
   students: Array<{ enrollmentId: string; name: string; currentStatus?: AttendanceStatus }>;
+  readOnly: boolean;
+  readOnlyMessage: string;
 }) {
   const baseRegisterParams = new URLSearchParams();
   baseRegisterParams.set("tab", "frequencia");
@@ -779,6 +811,8 @@ function AttendanceTab({
             classroomName={classroomName}
             students={students}
             defaultDate={date}
+            readOnly={readOnly}
+            readOnlyMessage={readOnlyMessage}
           />
         </>
       ) : (

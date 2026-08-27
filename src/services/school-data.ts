@@ -824,7 +824,11 @@ export async function listCalendarAdmin(schoolId: string) {
 export async function getSchoolSettings(schoolId: string) {
   const [school, academicYears, periods, auditLogs] = await Promise.all([
     prisma.school.findFirstOrThrow({ where: { id: schoolId } }),
-    prisma.academicYear.findMany({ where: { schoolId }, orderBy: { year: "desc" } }),
+    prisma.academicYear.findMany({
+      where: { schoolId },
+      include: { periods: { select: { closedAt: true } } },
+      orderBy: { year: "desc" }
+    }),
     prisma.academicPeriod.findMany({
       where: { schoolId },
       include: { academicYear: true },

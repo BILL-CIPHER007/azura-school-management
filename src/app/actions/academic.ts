@@ -7,6 +7,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { getDemoPassword, schoolConfig } from "@/config/school";
 import { announcementCanUseClassroom, announcementRequiresClassroom } from "@/lib/announcements";
+import { findAcademicPeriodForDate, isAcademicPeriodClosed } from "@/lib/academic-closing";
 import { calendarDateFromInput, calendarDateTimeFromInput } from "@/lib/calendar-events";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth";
@@ -85,6 +86,179 @@ function revalidateAssignmentAdminPaths(teacherId: string, classroomId: string) 
   revalidatePath(`/admin/turmas/${classroomId}`);
   revalidatePath(`/admin/turmas/${classroomId}/atribuicoes`);
   revalidatePath("/admin/disciplinas");
+}
+
+async function countPeriodMissingGradeTasks({
+  schoolId,
+  academicYearId,
+  periodId
+}: {
+  schoolId: string;
+  academicYearId: string;
+  periodId: string;
+}) {
+  const assignments = await prisma.teacherSubject.findMany({
+    where: {
+      schoolId,
+      classroom: { academicYearId }
+    },
+    select: {
+      classroomId: true,
+      subjectId: true,
+      classroom: {
+        select: {
+          enrollments: {
+            where: { status: "ACTIVE" },
+            select: { id: true }
+          }
+        }
+      }
+    }
+  });
+
+  let missingTasks = 0;
+
+  for (const assignment of assignments) {
+    const enrollmentIds = assignment.classroom.enrollments.map((enrollment) => enrollment.id);
+    if (!enrollmentIds.length) continue;
+
+    const gradeCount = await prisma.grade.count({
+      where: {
+        schoolId,
+        subjectId: assignment.subjectId,
+        academicPeriodId: periodId,
+        enrollmentId: { in: enrollmentIds }
+      }
+    });
+
+    if (gradeCount < enrollmentIds.length) {
+      missingTasks += 1;
+    }
+  }
+
+  return missingTasks;
+}
+
+export async function closeAcademicPeriod(formData: FormData) {
+  const session = await requireSession(["ADMIN"]);
+  const periodId = z.string().min(1).parse(formData.get("periodId"));
+
+  const period = await prisma.academicPeriod.findFirstOrThrow({
+    where: { id: periodId, schoolId: session.schoolId },
+    include: { academicYear: true }
+  });
+
+  if (period.closedAt) {
+    redirectWithStatus("/admin/configuracoes", { sucesso: "periodo-ja-encerrado" });
+  }
+
+  if (period.academicYear.closedAt) {
+    redirectWithStatus("/admin/configuracoes", { erro: "ano-encerrado" });
+  }
+
+  const missingGradeTasks = await countPeriodMissingGradeTasks({
+    schoolId: session.schoolId,
+    academicYearId: period.academicYearId,
+    periodId: period.id
+  });
+
+  if (missingGradeTasks > 0) {
+    redirectWithStatus("/admin/configuracoes", {
+      erro: "pendencias-periodo",
+      periodo: period.name,
+      total: String(missingGradeTasks)
+    });
+  }
+
+  await prisma.academicPeriod.update({
+    where: { id: period.id },
+    data: { closedAt: new Date() }
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      schoolId: session.schoolId,
+      userId: session.id,
+      action: "academic_period.closed",
+      entity: "AcademicPeriod",
+      entityId: period.id
+    }
+  });
+
+  revalidatePath("/admin/configuracoes");
+  redirectWithStatus("/admin/configuracoes", { sucesso: "periodo-encerrado" });
+}
+
+export async function reopenAcademicPeriod(formData: FormData) {
+  const session = await requireSession(["ADMIN"]);
+  const periodId = z.string().min(1).parse(formData.get("periodId"));
+
+  const period = await prisma.academicPeriod.findFirstOrThrow({
+    where: { id: periodId, schoolId: session.schoolId },
+    include: { academicYear: true }
+  });
+
+  if (period.academicYear.closedAt) {
+    redirectWithStatus("/admin/configuracoes", { erro: "ano-encerrado" });
+  }
+
+  await prisma.academicPeriod.update({
+    where: { id: period.id },
+    data: { closedAt: null }
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      schoolId: session.schoolId,
+      userId: session.id,
+      action: "academic_period.reopened",
+      entity: "AcademicPeriod",
+      entityId: period.id
+    }
+  });
+
+  revalidatePath("/admin/configuracoes");
+  redirectWithStatus("/admin/configuracoes", { sucesso: "periodo-reaberto" });
+}
+
+export async function closeAcademicYear(formData: FormData) {
+  const session = await requireSession(["ADMIN"]);
+  const academicYearId = z.string().min(1).parse(formData.get("academicYearId"));
+
+  const academicYear = await prisma.academicYear.findFirstOrThrow({
+    where: { id: academicYearId, schoolId: session.schoolId },
+    include: { periods: true }
+  });
+
+  if (academicYear.closedAt) {
+    redirectWithStatus("/admin/configuracoes", { sucesso: "ano-ja-encerrado" });
+  }
+
+  const openPeriods = academicYear.periods.filter((period) => !period.closedAt);
+  if (openPeriods.length > 0) {
+    redirectWithStatus("/admin/configuracoes", { erro: "periodos-abertos", total: String(openPeriods.length) });
+  }
+
+  await prisma.academicYear.update({
+    where: { id: academicYear.id },
+    data: {
+      closedAt: new Date(),
+      isActive: false
+    }
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      schoolId: session.schoolId,
+      userId: session.id,
+      action: "academic_year.closed",
+      entity: "AcademicYear",
+      entityId: academicYear.id
+    }
+  });
+
+  revalidatePath("/admin/configuracoes");
+  redirectWithStatus("/admin/configuracoes", { sucesso: "ano-encerrado" });
 }
 
 export async function createEnrollment(formData: FormData) {
@@ -484,11 +658,16 @@ export async function saveGrades(formData: FormData) {
       schoolId: session.schoolId,
       academicYearId: assignment.classroom.academicYearId
     },
-    select: { id: true }
+    include: { academicYear: true }
   });
   if (!period) {
     redirect(
       `/professor/turmas/${classroomId}?tab=notas&subjectId=${subjectId}&periodId=${periodId}&erro=periodo`
+    );
+  }
+  if (isAcademicPeriodClosed(period)) {
+    redirect(
+      `/professor/turmas/${classroomId}?tab=notas&subjectId=${subjectId}&periodId=${periodId}&erro=periodo-encerrado`
     );
   }
 
@@ -564,14 +743,34 @@ export async function saveAttendance(formData: FormData) {
   const teacher = await prisma.teacher.findFirstOrThrow({
     where: { schoolId: session.schoolId, userId: session.id }
   });
-  await prisma.teacherSubject.findFirstOrThrow({
+  const assignment = await prisma.teacherSubject.findFirstOrThrow({
     where: {
       schoolId: session.schoolId,
       teacherId: teacher.id,
       classroomId,
       subjectId
-    }
+    },
+    include: { classroom: { select: { academicYearId: true } } }
   });
+
+  const periods = await prisma.academicPeriod.findMany({
+    where: {
+      schoolId: session.schoolId,
+      academicYearId: assignment.classroom.academicYearId
+    },
+    include: { academicYear: true }
+  });
+  const period = findAcademicPeriodForDate(periods, date);
+  if (!period) {
+    redirect(
+      `/professor/turmas/${classroomId}?tab=frequencia&subjectId=${subjectId}&data=${dateValue}&erro=periodo-data`
+    );
+  }
+  if (isAcademicPeriodClosed(period)) {
+    redirect(
+      `/professor/turmas/${classroomId}?tab=frequencia&subjectId=${subjectId}&data=${dateValue}&erro=periodo-encerrado`
+    );
+  }
 
   const enrollmentIds = formData.getAll("enrollmentId").map(String);
   for (const enrollmentId of enrollmentIds) {

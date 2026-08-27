@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Select } from "@/components/ui/select";
 import { GradeTable } from "@/components/teacher/grade-table";
+import { academicPeriodClosedMessage } from "@/lib/academic-closing";
 
 type TeacherAssignment = {
   subjectId: string;
@@ -13,6 +14,7 @@ type TeacherAssignment = {
 type AcademicPeriod = {
   id: string;
   name: string;
+  closedAt?: Date | null;
 };
 
 type GradeRow = {
@@ -31,6 +33,7 @@ export function GradeWorkspace({
   periodId,
   rows,
   minimumGrade,
+  academicYearClosed = false,
   saved
 }: {
   classroomId: string;
@@ -40,11 +43,17 @@ export function GradeWorkspace({
   periodId: string;
   rows: GradeRow[];
   minimumGrade: number;
+  academicYearClosed?: boolean;
   saved: boolean;
 }) {
   const router = useRouter();
   const [dirty, setDirty] = useState(false);
   const activeSubject = assignments.find((assignment) => assignment.subjectId === activeSubjectId) ?? assignments[0];
+  const activePeriod = periods.find((period) => period.id === periodId) ?? periods[0];
+  const readOnly = academicYearClosed || Boolean(activePeriod?.closedAt);
+  const readOnlyMessage = academicYearClosed
+    ? "O ano letivo está encerrado para lançamentos."
+    : academicPeriodClosedMessage(activePeriod?.name);
 
   const confirmNavigation = useCallback(() => {
     if (!dirty) return true;
@@ -159,6 +168,13 @@ export function GradeWorkspace({
         </label>
       </div>
 
+      {readOnly ? (
+        <div className="rounded-lg border border-warning/20 bg-warning-soft px-4 py-3 text-sm text-text-secondary">
+          <strong className="block text-school-navy">Notas somente leitura</strong>
+          <span>{readOnlyMessage}</span>
+        </div>
+      ) : null}
+
       <GradeTable
         key={`${activeSubjectId}-${periodId}`}
         classroomId={classroomId}
@@ -167,6 +183,7 @@ export function GradeWorkspace({
         rows={rows}
         minimumGrade={minimumGrade}
         saved={saved}
+        readOnly={readOnly}
         onDirtyChange={setDirty}
       />
     </div>

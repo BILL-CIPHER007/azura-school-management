@@ -24,6 +24,7 @@ export function GradeTable({
   rows,
   minimumGrade,
   saved,
+  readOnly = false,
   onDirtyChange
 }: {
   classroomId: string;
@@ -32,6 +33,7 @@ export function GradeTable({
   rows: GradeRow[];
   minimumGrade: number;
   saved: boolean;
+  readOnly?: boolean;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const initialValues = useMemo(
@@ -43,10 +45,11 @@ export function GradeTable({
   );
   const [values, setValues] = useState<GradeValues>(initialValues);
   const [dirty, setDirty] = useState(false);
+  const visibleDirty = readOnly ? false : dirty;
 
   useEffect(() => {
-    onDirtyChange?.(dirty);
-  }, [dirty, onDirtyChange]);
+    onDirtyChange?.(visibleDirty);
+  }, [onDirtyChange, visibleDirty]);
 
   const computedRows = rows.map((row) => {
     const rowValues = values[row.enrollmentId] ?? { av1: 0, av2: 0, assignment: 0 };
@@ -60,6 +63,7 @@ export function GradeTable({
   const belowMinimum = computedRows.filter((row) => row.average < minimumGrade).length;
 
   function updateValue(enrollmentId: string, field: keyof GradeValues[string], value: string) {
+    if (readOnly) return;
     const numberValue = Number(value);
     setDirty(true);
     onDirtyChange?.(true);
@@ -88,10 +92,16 @@ export function GradeTable({
 
       <div className="flex min-h-9 flex-wrap items-center justify-between gap-3">
         <div>
-          {dirty ? <Badge variant="warning">Alterações não salvas</Badge> : null}
-          {!dirty && saved ? <Badge variant="success">Tudo salvo</Badge> : null}
+          {visibleDirty ? <Badge variant="warning">Alterações não salvas</Badge> : null}
+          {!visibleDirty && saved ? <Badge variant="success">Tudo salvo</Badge> : null}
         </div>
-        <Button type="submit">Salvar alterações</Button>
+        {readOnly ? (
+          <Button type="button" disabled>
+            Somente leitura
+          </Button>
+        ) : (
+          <Button type="submit">Salvar alterações</Button>
+        )}
       </div>
 
       <section className="grid gap-3 sm:grid-cols-3">
@@ -140,6 +150,7 @@ export function GradeTable({
                         max="10"
                         step="0.1"
                         value={row.values.av1}
+                        disabled={readOnly}
                         onChange={(event) => updateValue(row.enrollmentId, "av1", event.target.value)}
                       />
                     </td>
@@ -152,6 +163,7 @@ export function GradeTable({
                         max="10"
                         step="0.1"
                         value={row.values.av2}
+                        disabled={readOnly}
                         onChange={(event) => updateValue(row.enrollmentId, "av2", event.target.value)}
                       />
                     </td>
@@ -164,6 +176,7 @@ export function GradeTable({
                         max="10"
                         step="0.1"
                         value={row.values.assignment}
+                        disabled={readOnly}
                         onChange={(event) => updateValue(row.enrollmentId, "assignment", event.target.value)}
                       />
                     </td>

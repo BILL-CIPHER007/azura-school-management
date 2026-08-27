@@ -47,9 +47,7 @@ export default async function GuardianDashboardPage({
   const session = await requireSession(["RESPONSAVEL"]);
   const query = await searchParams;
   const portal = await getGuardianPortal(session.schoolId, session.id, query.studentId);
-  const isAcademicYearFinal = portal.enrollment?.academicYear.endsAt
-    ? portal.enrollment.academicYear.endsAt < new Date()
-    : false;
+  const isAcademicYearFinal = portal.enrollment ? Boolean(portal.enrollment.academicYear.closedAt) : false;
   const summary = summarizeEnrollment(portal.enrollment, { isFinal: isAcademicYearFinal });
   const attendance = summarizeGuardianAttendance(portal.enrollment?.attendances ?? []);
   const gradeRows = buildGuardianGradeRows(portal.enrollment?.grades ?? [], summary.attendanceRate);

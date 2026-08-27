@@ -20,8 +20,7 @@ export default async function GuardianReportPage({
   const query = await searchParams;
   const session = await requireSession(["RESPONSAVEL"]);
   const portal = await getGuardianPortal(session.schoolId, session.id, query.studentId);
-  const now = new Date();
-  const academicYearEnded = portal.enrollment ? portal.enrollment.academicYear.endsAt < now : false;
+  const academicYearEnded = portal.enrollment ? Boolean(portal.enrollment.academicYear.closedAt) : false;
   const summary = summarizeEnrollment(portal.enrollment, { isFinal: academicYearEnded });
   const allGrades = portal.enrollment?.grades ?? [];
   const years = [
@@ -51,7 +50,7 @@ export default async function GuardianReportPage({
     return byYear && byPeriod;
   });
   const selectedContextEnded =
-    selectedPeriod === "todos" ? academicYearEnded : visiblePeriods.length > 0 && visiblePeriods.every((period) => period.endsAt < now);
+    selectedPeriod === "todos" ? academicYearEnded : visiblePeriods.length > 0 && visiblePeriods.every((period) => period.closedAt);
   const rows = buildGradeRows(filteredGrades, summary.attendanceRate, { isFinal: selectedContextEnded });
   const classroom = portal.enrollment?.classroom;
 

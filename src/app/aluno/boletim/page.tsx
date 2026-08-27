@@ -18,8 +18,7 @@ export default async function StudentReportPage({
   const filters = await searchParams;
   const session = await requireSession(["ALUNO"]);
   const portal = await getStudentPortal(session.schoolId, session.id);
-  const now = new Date();
-  const academicYearEnded = portal.enrollment ? portal.enrollment.academicYear.endsAt < now : false;
+  const academicYearEnded = portal.enrollment ? Boolean(portal.enrollment.academicYear.closedAt) : false;
   const summary = summarizeEnrollment(portal.enrollment, { isFinal: academicYearEnded });
   const allGrades = portal.enrollment?.grades ?? [];
   const years = [
@@ -49,7 +48,7 @@ export default async function StudentReportPage({
     return byYear && byPeriod;
   });
   const selectedContextEnded =
-    selectedPeriod === "todos" ? academicYearEnded : visiblePeriods.length > 0 && visiblePeriods.every((period) => period.endsAt < now);
+    selectedPeriod === "todos" ? academicYearEnded : visiblePeriods.length > 0 && visiblePeriods.every((period) => period.closedAt);
   const gradeRows = buildGradeRows(filteredGrades, summary.attendanceRate, { isFinal: selectedContextEnded });
 
   return (

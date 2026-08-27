@@ -21,7 +21,9 @@ export function AttendanceList({
   subjectName,
   classroomName,
   students,
-  defaultDate
+  defaultDate,
+  readOnly = false,
+  readOnlyMessage
 }: {
   classroomId: string;
   subjectId: string;
@@ -29,6 +31,8 @@ export function AttendanceList({
   classroomName: string;
   students: StudentRow[];
   defaultDate: string;
+  readOnly?: boolean;
+  readOnlyMessage?: string;
 }) {
   const initialStatuses = useMemo(
     () =>
@@ -54,7 +58,7 @@ export function AttendanceList({
       <input type="hidden" name="subjectId" value={subjectId} />
 
       <div className="grid gap-3 rounded-lg border border-border bg-surface p-4 shadow-sm lg:grid-cols-[220px_1fr_auto] lg:items-center">
-        <Input name="date" type="date" defaultValue={defaultDate} />
+        <Input name="date" type="date" defaultValue={defaultDate} disabled={readOnly} />
         <div className="grid gap-2 text-sm text-text-secondary sm:grid-cols-3">
           <span>
             <strong className="block text-school-navy">Turma</strong>
@@ -72,6 +76,7 @@ export function AttendanceList({
         <Button
           type="button"
           variant="secondary"
+          disabled={readOnly}
           onClick={() =>
             setStatuses(Object.fromEntries(students.map((student) => [student.enrollmentId, "PRESENT"])))
           }
@@ -79,6 +84,13 @@ export function AttendanceList({
           Marcar todos como presentes
         </Button>
       </div>
+
+      {readOnly ? (
+        <div className="rounded-lg border border-warning/20 bg-warning-soft px-4 py-3 text-sm text-text-secondary">
+          <strong className="block text-school-navy">Chamada somente leitura</strong>
+          <span>{readOnlyMessage ?? "Este período está encerrado para lançamentos."}</span>
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap gap-2 text-sm">
         <span className="rounded-md bg-success-soft px-3 py-1 font-medium text-success">
@@ -108,6 +120,7 @@ export function AttendanceList({
                   key={status}
                   className={cn(
                     "flex cursor-pointer items-center justify-center rounded-md border px-3 py-2 text-sm font-medium transition-colors",
+                    readOnly && "cursor-not-allowed opacity-70",
                     statuses[student.enrollmentId] === status
                       ? "border-school-primary bg-school-primary text-white"
                       : "border-border bg-surface text-text-secondary hover:bg-school-primary-soft hover:text-school-primary"
@@ -119,6 +132,7 @@ export function AttendanceList({
                     name={`status-${student.enrollmentId}`}
                     value={status}
                     checked={statuses[student.enrollmentId] === status}
+                    disabled={readOnly}
                     onChange={() =>
                       setStatuses((current) => ({
                         ...current,
@@ -134,9 +148,15 @@ export function AttendanceList({
         ))}
       </div>
 
-      <Button type="submit" className="w-fit">
-        Salvar chamada
-      </Button>
+      {readOnly ? (
+        <Button type="button" className="w-fit" disabled>
+          Somente leitura
+        </Button>
+      ) : (
+        <Button type="submit" className="w-fit">
+          Salvar chamada
+        </Button>
+      )}
     </form>
   );
 }
