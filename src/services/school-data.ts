@@ -7,6 +7,7 @@ import {
   isAttendanceBelowMinimum,
   isPassingVisibleGrade
 } from "@/lib/academic-rules";
+import { buildStudentAcademicHistory } from "@/lib/academic-history";
 import { guardianAnnouncementWhere, studentAnnouncementWhere, teacherAnnouncementWhere } from "@/lib/announcements";
 import { prisma } from "@/lib/prisma";
 import { average, gradeSituation } from "@/lib/utils";
@@ -334,6 +335,98 @@ export async function getStudentDetails(schoolId: string, studentId: string) {
       }
     }
   });
+}
+
+function studentAcademicHistoryInclude() {
+  return {
+    enrollments: {
+      include: {
+        academicYear: {
+          include: {
+            periods: { orderBy: { sortOrder: "asc" as const } }
+          }
+        },
+        classroom: {
+          include: {
+            assignments: {
+              include: { subject: true },
+              orderBy: { subject: { name: "asc" as const } }
+            }
+          }
+        },
+        grades: {
+          include: { subject: true, academicPeriod: true },
+          orderBy: [{ subject: { name: "asc" as const } }, { academicPeriod: { sortOrder: "asc" as const } }]
+        },
+        attendances: {
+          include: { subject: true },
+          orderBy: [{ date: "desc" as const }, { subject: { name: "asc" as const } }]
+        }
+      },
+      orderBy: { enrolledAt: "desc" as const }
+    }
+  };
+}
+
+async function findStudentAcademicHistoryByStudentId(schoolId: string, studentId: string) {
+  const student = await prisma.student.findFirst({
+    where: { id: studentId, schoolId },
+    include: studentAcademicHistoryInclude()
+  });
+
+  return student ? buildStudentAcademicHistory(student) : null;
+}
+
+export async function getAdminStudentAcademicHistory(schoolId: string, studentId: string) {
+  return findStudentAcademicHistoryByStudentId(schoolId, studentId);
+}
+
+export async function getStudentAcademicHistory(schoolId: string, userId: string) {
+  const student = await prisma.student.findFirst({
+    where: { schoolId, userId },
+    include: studentAcademicHistoryInclude()
+  });
+
+  return student ? buildStudentAcademicHistory(student) : null;
+}
+
+export async function getGuardianAcademicHistory(
+  schoolId: string,
+  userId: string,
+  selectedStudentId?: string
+) {
+  const guardian = await prisma.guardian.findFirstOrThrow({
+    where: { schoolId, userId },
+    include: {
+      students: {
+        include: {
+          student: {
+            include: {
+              enrollments: {
+                include: {
+                  classroom: true,
+                  academicYear: true
+                },
+                orderBy: { enrolledAt: "desc" },
+                take: 1
+              }
+            }
+          }
+        },
+        orderBy: [{ isPrimary: "desc" }, { student: { fullName: "asc" } }]
+      }
+    }
+  });
+  const children = guardian.students.map((item) => item.student);
+  const selected = children.find((student) => student.id === selectedStudentId) ?? children[0] ?? null;
+  const history = selected ? await findStudentAcademicHistoryByStudentId(schoolId, selected.id) : null;
+
+  return {
+    guardian,
+    children,
+    selectedStudent: selected,
+    history
+  };
 }
 
 export async function getEnrollmentOptions(schoolId: string) {

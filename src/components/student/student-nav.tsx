@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, ClipboardCheck, Home, Megaphone, NotebookTabs, UserRound } from "lucide-react";
+import { CalendarDays, ClipboardCheck, FileClock, Home, Megaphone, NotebookTabs, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
   { href: "/aluno/dashboard", label: "Início", icon: Home },
   { href: "/aluno/boletim", label: "Boletim", icon: NotebookTabs },
+  { href: "/aluno/historico", label: "Histórico", icon: FileClock },
   { href: "/aluno/frequencia", label: "Frequência", icon: ClipboardCheck },
   { href: "/aluno/calendario", label: "Calendário", icon: CalendarDays },
   { href: "/aluno/comunicados", label: "Comunicados", icon: Megaphone },

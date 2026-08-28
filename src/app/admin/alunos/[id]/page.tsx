@@ -42,6 +42,9 @@ export default async function StudentDetailsPage({ params }: { params: Promise<{
             <Button asChild variant="outline">
               <Link href="/admin/alunos">Voltar</Link>
             </Button>
+            <Button asChild>
+              <Link href={`/admin/alunos/${student.id}/historico`}>Histórico escolar</Link>
+            </Button>
             <Button variant="secondary" disabled>Editar aluno</Button>
             <Button variant="secondary" disabled>Editar matrícula</Button>
           </>
