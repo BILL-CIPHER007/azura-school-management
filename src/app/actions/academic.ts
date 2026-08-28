@@ -7,7 +7,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { getDemoPassword, schoolConfig } from "@/config/school";
 import { announcementCanUseClassroom, announcementRequiresClassroom } from "@/lib/announcements";
-import { findAcademicPeriodForDate, isAcademicPeriodClosed } from "@/lib/academic-closing";
+import { findAcademicPeriodForDate, getAcademicPeriodClosingState, isAcademicPeriodClosed } from "@/lib/academic-closing";
 import { calendarDateFromInput, calendarDateTimeFromInput } from "@/lib/calendar-events";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth";
@@ -154,6 +154,15 @@ export async function closeAcademicPeriod(formData: FormData) {
 
   if (period.academicYear.closedAt) {
     redirectWithStatus("/admin/configuracoes", { erro: "ano-encerrado" });
+  }
+
+  const closingState = getAcademicPeriodClosingState(period);
+  if (!closingState.canClose) {
+    redirectWithStatus("/admin/configuracoes", {
+      erro: "periodo-fora-do-prazo",
+      periodo: period.name,
+      estado: closingState.reason
+    });
   }
 
   const missingGradeTasks = await countPeriodMissingGradeTasks({

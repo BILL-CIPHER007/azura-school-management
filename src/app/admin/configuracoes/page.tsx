@@ -4,7 +4,7 @@ import { ConfirmSubmitButton } from "@/components/admin/confirm-submit-button";
 import { AdminEmptyState, AdminPageHeader, AdminSection, DefinitionList } from "@/components/admin/admin-ui";
 import { Badge } from "@/components/ui/badge";
 import { schoolConfig } from "@/config/school";
-import { isAcademicYearClosed } from "@/lib/academic-closing";
+import { getAcademicPeriodClosingState, isAcademicYearClosed } from "@/lib/academic-closing";
 import { auditActionLabel, auditEntityLabel } from "@/lib/admin-labels";
 import { requireSession } from "@/lib/auth";
 import { formatDate, formatDateTime } from "@/lib/utils";
@@ -61,7 +61,14 @@ function academicYearStatus(year: AcademicYearInfo): { label: string; tone: Tone
   return { label: "Em andamento", tone: "warning" };
 }
 
-function settingsFeedback(params: { erro?: string; sucesso?: string; periodo?: string; total?: string }) {
+function periodClosingTone(reason: ReturnType<typeof getAcademicPeriodClosingState>["reason"]): Tone {
+  if (reason === "ready") return "success";
+  if (reason === "not-started") return "info";
+  if (reason === "in-progress") return "warning";
+  return "neutral";
+}
+
+function settingsFeedback(params: { erro?: string; sucesso?: string; periodo?: string; total?: string; estado?: string }) {
   if (params.erro === "pendencias-periodo") {
     const period = params.periodo ? ` em ${params.periodo}` : "";
     return {
@@ -82,6 +89,15 @@ function settingsFeedback(params: { erro?: string; sucesso?: string; periodo?: s
       tone: "warning" as Tone,
       title: "Ano letivo encerrado",
       description: "Não é possível alterar períodos de um ano letivo já encerrado."
+    };
+  }
+  if (params.erro === "periodo-fora-do-prazo") {
+    const period = params.periodo ? `: ${params.periodo}` : "";
+    const state = params.estado === "not-started" ? "ainda não começou" : "ainda está em andamento";
+    return {
+      tone: "warning" as Tone,
+      title: "Período ainda não pode ser encerrado",
+      description: `O período${period} ${state}. O fechamento fica disponível a partir da data final do período.`
     };
   }
   if (params.sucesso) {
@@ -128,7 +144,7 @@ function shortId(value: string) {
 export default async function SettingsPage({
   searchParams
 }: {
-  searchParams: Promise<{ erro?: string; sucesso?: string; periodo?: string; total?: string }>;
+  searchParams: Promise<{ erro?: string; sucesso?: string; periodo?: string; total?: string; estado?: string }>;
 }) {
   const query = await searchParams;
   const session = await requireSession(["ADMIN"]);
@@ -255,7 +271,7 @@ export default async function SettingsPage({
                     <div className="mt-3 flex flex-col gap-2">
                       {openPeriods > 0 ? (
                         <p className="rounded-md bg-warning-soft px-3 py-2 text-xs text-warning">
-                          {openPeriods} período{openPeriods === 1 ? "" : "s"} ainda aberto
+                          {openPeriods} {openPeriods === 1 ? "período ainda aberto" : "períodos ainda abertos"}
                         </p>
                       ) : null}
                       <form action={closeAcademicYear}>
@@ -266,6 +282,7 @@ export default async function SettingsPage({
                           icon="none"
                           variant="secondary"
                           className="w-fit"
+                          disabled={openPeriods > 0}
                         >
                           Encerrar ano letivo
                         </ConfirmSubmitButton>
@@ -289,7 +306,8 @@ export default async function SettingsPage({
           <div className="grid gap-2 md:grid-cols-2">
             {settings.periods.map((period) => {
               const health = periodHealth.get(period.id) ?? { label: "Não verificado", tone: "neutral" as Tone };
-              const closed = Boolean(period.closedAt || period.academicYear.closedAt);
+              const closingState = getAcademicPeriodClosingState(period);
+              const closingTone = periodClosingTone(closingState.reason);
               return (
                 <div key={period.id} className="rounded-md border border-border p-3 text-sm">
                   <div className="flex items-start justify-between gap-3">
@@ -297,7 +315,7 @@ export default async function SettingsPage({
                       {period.academicYear.year} · {period.name}
                     </span>
                     <span className="flex flex-wrap justify-end gap-2">
-                      <Badge variant={closed ? "neutral" : "success"}>{closed ? "Encerrado" : "Aberto"}</Badge>
+                      <Badge variant={closingTone}>{closingState.label}</Badge>
                       <Badge variant={health.tone}>{health.label}</Badge>
                     </span>
                   </div>
@@ -325,6 +343,10 @@ export default async function SettingsPage({
                           Reabrir período
                         </ConfirmSubmitButton>
                       </form>
+                    ) : !closingState.canClose ? (
+                      <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-text-secondary">
+                        {closingState.label}. O fechamento ficará disponível a partir de {formatDate(period.endsAt)}.
+                      </p>
                     ) : (
                       <form action={closeAcademicPeriod}>
                         <input type="hidden" name="periodId" value={period.id} />

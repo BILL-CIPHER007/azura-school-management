@@ -12,7 +12,8 @@ export function ConfirmSubmitButton({
   icon = "trash",
   variant = "outline",
   size = "sm",
-  className
+  className,
+  disabled = false
 }: {
   message: string;
   children?: React.ReactNode;
@@ -21,6 +22,7 @@ export function ConfirmSubmitButton({
   variant?: ButtonProps["variant"];
   size?: ButtonProps["size"];
   className?: string;
+  disabled?: boolean;
 }) {
   const { pending } = useFormStatus();
 
@@ -30,8 +32,9 @@ export function ConfirmSubmitButton({
       variant={variant}
       size={size}
       className={className}
-      disabled={pending}
+      disabled={disabled || pending}
       onClick={(event) => {
+        if (disabled) return;
         if (!window.confirm(message)) {
           event.preventDefault();
         }
