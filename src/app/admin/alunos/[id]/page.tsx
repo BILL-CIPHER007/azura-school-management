@@ -45,6 +45,12 @@ export default async function StudentDetailsPage({ params }: { params: Promise<{
             <Button asChild>
               <Link href={`/admin/alunos/${student.id}/historico`}>Histórico escolar</Link>
             </Button>
+            <Button asChild variant="outline">
+              <Link href={`/api/documentos/boletim?studentId=${student.id}`}>Baixar boletim</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href={`/api/documentos/declaracao-matricula?studentId=${student.id}`}>Declaração</Link>
+            </Button>
             <Button variant="secondary" disabled>Editar aluno</Button>
             <Button variant="secondary" disabled>Editar matrícula</Button>
           </>

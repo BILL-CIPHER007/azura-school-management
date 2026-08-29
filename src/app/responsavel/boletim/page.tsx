@@ -1,7 +1,9 @@
 import { BookOpenCheck, ClipboardCheck, GraduationCap, NotebookTabs } from "lucide-react";
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { StudentSwitcher } from "@/components/guardian/student-switcher";
 import { GuardianMetric, GuardianPageHeader, GuardianSection, GuardianStatusBadge } from "@/components/guardian/guardian-ui";
+import { Button } from "@/components/ui/button";
 import { requireSession } from "@/lib/auth";
 import { isPassingVisibleGrade } from "@/lib/academic-rules";
 import { buildGradeRows } from "@/lib/student-academics";
@@ -53,6 +55,9 @@ export default async function GuardianReportPage({
     selectedPeriod === "todos" ? academicYearEnded : visiblePeriods.length > 0 && visiblePeriods.every((period) => period.closedAt);
   const rows = buildGradeRows(filteredGrades, summary.attendanceRate, { isFinal: selectedContextEnded });
   const classroom = portal.enrollment?.classroom;
+  const reportPdfHref = portal.selectedStudent
+    ? `/api/documentos/boletim?studentId=${portal.selectedStudent.id}&ano=${selectedYear}&periodo=${selectedPeriod}`
+    : "";
 
   return (
     <main className="guardian-page">
@@ -61,6 +66,13 @@ export default async function GuardianReportPage({
           title="Boletim"
           description={`Notas e situação acadêmica de ${guardianFirstName(portal.selectedStudent?.fullName ?? "aluno")}.`}
           eyebrow={classroom ? `${classroom.name} · ${guardianShiftLabel(classroom.shift)}` : "Aluno acompanhado"}
+          action={
+            portal.selectedStudent ? (
+              <Button asChild size="sm">
+                <Link href={reportPdfHref}>Baixar boletim</Link>
+              </Button>
+            ) : null
+          }
         />
         <StudentSwitcher students={portal.children} selectedStudentId={portal.selectedStudent?.id} />
       </div>

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Activity, BarChart3, CalendarCheck, Eye, FilePenLine, ListChecks, UsersRound, X } from "lucide-react";
+import { saveClassDiaryEntry } from "@/app/actions/academic";
 import { AttendanceList } from "@/components/teacher/attendance-list";
 import { GradeWorkspace } from "@/components/teacher/grade-workspace";
 import {
@@ -24,7 +25,7 @@ import { getTeacherClassroomWorkspace } from "@/services/school-data";
 
 export const dynamic = "force-dynamic";
 
-const allowedTabs = ["resumo", "alunos", "notas", "frequencia"] as const;
+const allowedTabs = ["resumo", "alunos", "notas", "frequencia", "diario"] as const;
 
 type AttendanceStatus = "PRESENT" | "ABSENT" | "JUSTIFIED";
 
@@ -62,6 +63,17 @@ type ActionItem = {
   id: string;
   title: string;
   description: string;
+};
+
+type DiaryEntry = {
+  id: string;
+  date: Date;
+  content: string;
+  notes: string | null;
+  updatedAt: Date;
+  subjectId: string;
+  subject: { id: string; name: string };
+  teacher: { fullName: string };
 };
 
 type TeacherStudentSituation = "Regular" | "Em atenção" | "Recuperação" | "Frequência baixa" | "Aprovado" | "Reprovado";
@@ -226,6 +238,14 @@ function formatAttendanceSessionSummary(session: AttendanceSession) {
   } · ${session.counts.JUSTIFIED} justificado${session.counts.JUSTIFIED === 1 ? "" : "s"}`;
 }
 
+function diaryAttendanceSummary(attendanceSessions: AttendanceSession[], subjectId: string, date: Date) {
+  const session = attendanceSessions.find(
+    (attendanceSession) => attendanceSession.subjectId === subjectId && attendanceSession.dateKey === toDateKey(date)
+  );
+  if (!session) return "Chamada não registrada";
+  return `${session.counts.PRESENT} presentes · ${session.counts.ABSENT} ausentes · ${session.counts.JUSTIFIED} justificados`;
+}
+
 export default async function TeacherClassroomPage({
   params,
   searchParams
@@ -268,6 +288,14 @@ export default async function TeacherClassroomPage({
     : academicYearClosed
       ? "O ano letivo está encerrado para lançamentos."
       : academicPeriodClosedMessage(selectedAttendancePeriod.name);
+  const diaryDate = attendanceDate;
+  const selectedDiaryPeriod = findAcademicPeriodForDate(periods, new Date(`${diaryDate}T12:00:00.000Z`));
+  const diaryReadOnly = academicYearClosed || !selectedDiaryPeriod || isAcademicPeriodClosed(selectedDiaryPeriod);
+  const diaryReadOnlyMessage = !selectedDiaryPeriod
+    ? "A data selecionada não pertence a um período acadêmico cadastrado."
+    : academicYearClosed
+      ? "O ano letivo está encerrado para registros de diário."
+      : academicPeriodClosedMessage(selectedDiaryPeriod.name);
 
   const allGrades = classroom.enrollments.flatMap((enrollment) => enrollment.grades);
   const allAttendances = classroom.enrollments.flatMap((enrollment) =>
@@ -278,6 +306,11 @@ export default async function TeacherClassroomPage({
     }))
   );
   const attendanceSessions = buildAttendanceSessions(allAttendances);
+  const diaryEntries = classroom.diaryEntries as DiaryEntry[];
+  const selectedDiaryEntry =
+    diaryEntries.find((entry) => entry.subjectId === activeSubjectId && toDateKey(entry.date) === diaryDate) ?? null;
+  const diaryAttendanceSession =
+    attendanceSessions.find((session) => session.subjectId === activeSubjectId && session.dateKey === diaryDate) ?? null;
   const historyFilters = {
     subjectId:
       query.historicoDisciplina && assignments.some((assignment) => assignment.subjectId === query.historicoDisciplina)
@@ -468,6 +501,23 @@ export default async function TeacherClassroomPage({
               })}
               readOnly={attendanceReadOnly}
               readOnlyMessage={attendanceReadOnlyMessage}
+            />
+          ) : null}
+
+          {activeTab === "diario" ? (
+            <DiaryTab
+              classroomId={classroom.id}
+              classroomName={classroom.name}
+              assignments={assignments}
+              activeSubjectId={activeSubjectId}
+              activeSubjectName={activeSubject.subject.name}
+              date={diaryDate}
+              entries={diaryEntries}
+              activeEntry={selectedDiaryEntry}
+              attendanceSession={diaryAttendanceSession}
+              attendanceSessions={attendanceSessions}
+              readOnly={diaryReadOnly}
+              readOnlyMessage={diaryReadOnlyMessage}
             />
           ) : null}
         </div>
@@ -712,6 +762,191 @@ function GradesTab({
       academicYearClosed={academicYearClosed}
       saved={saved}
     />
+  );
+}
+
+function DiaryTab({
+  classroomId,
+  classroomName,
+  assignments,
+  activeSubjectId,
+  activeSubjectName,
+  date,
+  entries,
+  activeEntry,
+  attendanceSession,
+  attendanceSessions,
+  readOnly,
+  readOnlyMessage
+}: {
+  classroomId: string;
+  classroomName: string;
+  assignments: Array<{ subjectId: string; subject: { id: string; name: string } }>;
+  activeSubjectId: string;
+  activeSubjectName: string;
+  date: string;
+  entries: DiaryEntry[];
+  activeEntry: DiaryEntry | null;
+  attendanceSession: AttendanceSession | null;
+  attendanceSessions: AttendanceSession[];
+  readOnly: boolean;
+  readOnlyMessage: string;
+}) {
+  return (
+    <div className="grid gap-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-school-navy">Diário de classe</h2>
+          <p className="text-sm text-text-secondary">
+            Registre o conteúdo trabalhado por turma, disciplina e data, usando a chamada existente como referência.
+          </p>
+        </div>
+      </div>
+
+      <form
+        className="grid gap-3 rounded-lg border border-border bg-surface-muted p-3 md:grid-cols-[1fr_180px_auto]"
+        action={`/professor/turmas/${classroomId}`}
+      >
+        <input type="hidden" name="tab" value="diario" />
+        {assignments.length > 1 ? (
+          <Select name="subjectId" defaultValue={activeSubjectId}>
+            {assignments.map((assignment) => (
+              <option key={assignment.subjectId} value={assignment.subjectId}>
+                {assignment.subject.name}
+              </option>
+            ))}
+          </Select>
+        ) : (
+          <>
+            <input type="hidden" name="subjectId" value={activeSubjectId} />
+            <div className="flex h-10 items-center rounded-md border border-border bg-surface px-3 text-sm text-text-primary">
+              {activeSubjectName}
+            </div>
+          </>
+        )}
+        <input
+          name="data"
+          type="date"
+          defaultValue={date}
+          className="h-10 rounded-md border border-border bg-surface px-3 text-sm text-school-navy outline-none transition focus:border-school-primary focus:ring-2 focus:ring-school-primary-soft"
+        />
+        <Button type="submit" variant="secondary">
+          Abrir diário
+        </Button>
+      </form>
+
+      <TeacherSection
+        title={`Registro da aula — ${formatDate(new Date(`${date}T12:00:00.000Z`))}`}
+        description={`${classroomName} · ${activeSubjectName}`}
+      >
+        <form action={saveClassDiaryEntry} className="grid gap-4">
+          <input type="hidden" name="classroomId" value={classroomId} />
+          <input type="hidden" name="subjectId" value={activeSubjectId} />
+          <input type="hidden" name="date" value={date} />
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-md bg-school-primary-soft p-3 text-sm">
+              <span className="text-text-secondary">Turma</span>
+              <strong className="mt-1 block text-school-navy">{classroomName}</strong>
+            </div>
+            <div className="rounded-md bg-school-primary-soft p-3 text-sm">
+              <span className="text-text-secondary">Disciplina</span>
+              <strong className="mt-1 block text-school-navy">{activeSubjectName}</strong>
+            </div>
+            <div className="rounded-md bg-school-primary-soft p-3 text-sm">
+              <span className="text-text-secondary">Chamada</span>
+              <strong className="mt-1 block text-school-navy">
+                {attendanceSession ? formatAttendanceSessionSummary(attendanceSession) : "Ainda não registrada"}
+              </strong>
+            </div>
+          </div>
+
+          {readOnly ? (
+            <div className="rounded-md border border-warning/30 bg-warning-soft px-3 py-2 text-sm text-warning">
+              {readOnlyMessage}
+            </div>
+          ) : null}
+
+          <label className="grid gap-2 text-sm font-medium text-school-navy">
+            Conteúdo trabalhado
+            <textarea
+              name="content"
+              defaultValue={activeEntry?.content ?? ""}
+              required
+              disabled={readOnly}
+              rows={5}
+              placeholder="Descreva o conteúdo desenvolvido nesta aula."
+              className="min-h-[130px] rounded-md border border-input bg-surface px-3 py-2 text-sm font-normal text-foreground shadow-sm outline-none transition-colors placeholder:text-text-muted focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 disabled:cursor-not-allowed disabled:bg-muted disabled:opacity-70"
+            />
+          </label>
+
+          <label className="grid gap-2 text-sm font-medium text-school-navy">
+            Observações
+            <textarea
+              name="notes"
+              defaultValue={activeEntry?.notes ?? ""}
+              disabled={readOnly}
+              rows={3}
+              placeholder="Observações opcionais para acompanhamento pedagógico."
+              className="min-h-[96px] rounded-md border border-input bg-surface px-3 py-2 text-sm font-normal text-foreground shadow-sm outline-none transition-colors placeholder:text-text-muted focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 disabled:cursor-not-allowed disabled:bg-muted disabled:opacity-70"
+            />
+          </label>
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-text-muted">
+              {activeEntry ? `Atualizado em ${formatShortDateTime(activeEntry.updatedAt)}` : "Novo registro de diário."}
+            </p>
+            <Button type="submit" disabled={readOnly}>
+              Salvar diário
+            </Button>
+          </div>
+        </form>
+      </TeacherSection>
+
+      <TeacherSection title="Histórico do diário" description="Registros mais recentes desta turma.">
+        {entries.length ? (
+          <div className="teacher-table-wrap">
+            <table className="teacher-table min-w-[1040px]">
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Disciplina</th>
+                  <th>Chamada</th>
+                  <th>Conteúdo</th>
+                  <th>Observações</th>
+                  <th>Professor</th>
+                  <th>Atualização</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((entry) => {
+                  const attendanceSummary = diaryAttendanceSummary(attendanceSessions, entry.subjectId, entry.date);
+                  return (
+                    <tr key={entry.id}>
+                      <td className="font-medium text-school-navy">{formatDate(entry.date)}</td>
+                      <td>{entry.subject.name}</td>
+                      <td className="min-w-[210px] text-sm text-text-secondary">{attendanceSummary}</td>
+                      <td className="min-w-[260px] max-w-lg whitespace-pre-wrap break-words leading-6">
+                        {entry.content}
+                      </td>
+                      <td className="min-w-[220px] max-w-md whitespace-pre-wrap break-words leading-6 text-text-secondary">
+                        {entry.notes || <span className="text-text-muted">—</span>}
+                      </td>
+                      <td>{entry.teacher.fullName}</td>
+                      <td>{formatShortDateTime(entry.updatedAt)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="rounded-md bg-surface-muted p-4 text-sm text-text-secondary">
+            Nenhuma aula registrada para este período.
+          </p>
+        )}
+      </TeacherSection>
+    </div>
   );
 }
 

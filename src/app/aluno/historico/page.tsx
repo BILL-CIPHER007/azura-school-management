@@ -1,7 +1,9 @@
 import { AcademicHistoryView } from "@/components/academic-history-view";
 import { StudentEmptyState, StudentPageHeader } from "@/components/student/student-ui";
+import { Button } from "@/components/ui/button";
 import { requireSession } from "@/lib/auth";
 import { getStudentAcademicHistory } from "@/services/school-data";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +33,16 @@ export default async function StudentAcademicHistoryPage() {
         title="Histórico escolar"
         description="Sua trajetória acadêmica consolidada por ano letivo, disciplina, média e frequência."
         eyebrow={history.student.fullName}
+        action={
+          <>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/api/documentos/declaracao-matricula">Declaração de matrícula</Link>
+            </Button>
+            <Button asChild size="sm">
+              <Link href="/api/documentos/historico">Baixar histórico</Link>
+            </Button>
+          </>
+        }
       />
 
       <AcademicHistoryView history={history} tableClassName="student-table" />

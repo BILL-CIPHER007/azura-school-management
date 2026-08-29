@@ -337,6 +337,55 @@ export async function getStudentDetails(schoolId: string, studentId: string) {
   });
 }
 
+export async function getStudentAcademicDocumentData(schoolId: string, studentId: string) {
+  const student = await prisma.student.findFirst({
+    where: { id: studentId, schoolId },
+    include: {
+      school: true,
+      guardians: {
+        include: { guardian: true },
+        orderBy: [{ isPrimary: "desc" }, { guardian: { fullName: "asc" } }]
+      },
+      enrollments: {
+        include: {
+          academicYear: {
+            include: {
+              periods: { orderBy: { sortOrder: "asc" as const } }
+            }
+          },
+          classroom: {
+            include: {
+              assignments: {
+                include: { subject: true },
+                orderBy: { subject: { name: "asc" as const } }
+              }
+            }
+          },
+          grades: {
+            include: {
+              subject: true,
+              academicPeriod: { include: { academicYear: true } }
+            },
+            orderBy: [{ subject: { name: "asc" as const } }, { academicPeriod: { sortOrder: "asc" as const } }]
+          },
+          attendances: {
+            include: { subject: true },
+            orderBy: [{ date: "desc" as const }, { subject: { name: "asc" as const } }]
+          }
+        },
+        orderBy: [{ academicYear: { year: "desc" as const } }, { enrolledAt: "desc" as const }]
+      }
+    }
+  });
+
+  return student
+    ? {
+        student,
+        history: buildStudentAcademicHistory(student)
+      }
+    : null;
+}
+
 function studentAcademicHistoryInclude() {
   return {
     enrollments: {
@@ -601,6 +650,14 @@ export async function getClassroomDetails(schoolId: string, classroomId: string)
           subject: true,
           classroom: true
         }
+      },
+      diaryEntries: {
+        include: {
+          subject: true,
+          teacher: true
+        },
+        orderBy: [{ date: "desc" }, { updatedAt: "desc" }],
+        take: 80
       },
       enrollments: {
         where: { status: "ACTIVE" },
@@ -1303,6 +1360,18 @@ export async function getTeacherClassroomWorkspace(
             }
           },
           orderBy: { student: { fullName: "asc" } }
+        },
+        diaryEntries: {
+          where: {
+            subjectId: { in: allowedSubjectIds },
+            teacherId: teacher.id
+          },
+          include: {
+            subject: true,
+            teacher: true
+          },
+          orderBy: [{ date: "desc" }, { updatedAt: "desc" }],
+          take: 80
         }
       }
     }),

@@ -75,6 +75,7 @@ model School {
   attendances   Attendance[]
   announcements Announcement[]
   events        CalendarEvent[]
+  diaryEntries  ClassDiaryEntry[]
   auditLogs     AuditLog[]
 }
 
@@ -194,6 +195,7 @@ model Teacher {
   user        User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
   assignments TeacherSubject[]
   grades      Grade[]
+  diaryEntries ClassDiaryEntry[]
 
   @@index([schoolId, fullName])
 }
@@ -209,6 +211,7 @@ model Subject {
   assignments TeacherSubject[]
   grades      Grade[]
   attendances Attendance[]
+  diaryEntries ClassDiaryEntry[]
 
   @@unique([schoolId, code])
 }
@@ -228,6 +231,7 @@ model Classroom {
   assignments    TeacherSubject[]
   announcements  Announcement[]
   attendances    Attendance[]
+  diaryEntries   ClassDiaryEntry[]
 
   @@unique([schoolId, academicYearId, name])
 }
@@ -306,6 +310,27 @@ model Attendance {
   subject      Subject          @relation(fields: [subjectId], references: [id], onDelete: Cascade)
 
   @@unique([schoolId, enrollmentId, subjectId, date])
+}
+
+model ClassDiaryEntry {
+  id          String    @id @default(cuid())
+  schoolId    String
+  classroomId String
+  subjectId   String
+  teacherId   String
+  date        DateTime
+  content     String
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  school      School    @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  classroom   Classroom @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  subject     Subject   @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  teacher     Teacher   @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+
+  @@unique([schoolId, classroomId, subjectId, teacherId, date])
+  @@index([schoolId, classroomId, subjectId, date])
+  @@index([schoolId, teacherId, date])
 }
 
 model Announcement {

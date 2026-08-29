@@ -26,9 +26,14 @@ export default async function AdminStudentAcademicHistoryPage({ params }: { para
           { label: "Histórico" }
         ]}
         action={
-          <Button asChild variant="outline">
-            <Link href={`/admin/alunos/${history.student.id}`}>Voltar ao aluno</Link>
-          </Button>
+          <>
+            <Button asChild variant="outline">
+              <Link href={`/admin/alunos/${history.student.id}`}>Voltar ao aluno</Link>
+            </Button>
+            <Button asChild>
+              <Link href={`/api/documentos/historico?studentId=${history.student.id}`}>Baixar histórico</Link>
+            </Button>
+          </>
         }
       />
 

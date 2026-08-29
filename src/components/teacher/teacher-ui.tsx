@@ -134,7 +134,8 @@ export function ClassTabs({
     { id: "resumo", label: "Resumo" },
     { id: "alunos", label: "Alunos" },
     { id: "notas", label: "Notas" },
-    { id: "frequencia", label: "Frequência" }
+    { id: "frequencia", label: "Frequência" },
+    { id: "diario", label: "Diário" }
   ];
 
   const preserve = new URLSearchParams();

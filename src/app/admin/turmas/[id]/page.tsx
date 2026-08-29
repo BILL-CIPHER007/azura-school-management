@@ -14,7 +14,7 @@ import {
   isPassingVisibleGrade
 } from "@/lib/academic-rules";
 import { requireSession } from "@/lib/auth";
-import { average, formatPercent } from "@/lib/utils";
+import { average, formatDate, formatPercent } from "@/lib/utils";
 import { getClassroomDetails } from "@/services/school-data";
 
 export const dynamic = "force-dynamic";
@@ -24,13 +24,34 @@ const tabs = [
   { id: "alunos", label: "Alunos" },
   { id: "professores", label: "Professores e Disciplinas" },
   { id: "desempenho", label: "Desempenho" },
-  { id: "frequencia", label: "Frequência" }
+  { id: "frequencia", label: "Frequência" },
+  { id: "diario", label: "Diário" }
 ] as const;
 
 function calculateAttendanceRate(attendances: Array<{ status: string }>) {
   if (!attendances.length) return 0;
   const present = attendances.filter((attendance) => attendance.status === "PRESENT").length;
   return (present / attendances.length) * 100;
+}
+
+function diaryAttendanceSummary(
+  enrollments: Array<{ attendances: Array<{ subjectId: string; date: Date; status: string }> }>,
+  subjectId: string,
+  date: Date
+) {
+  const dateKey = date.toISOString().slice(0, 10);
+  const records = enrollments.flatMap((enrollment) =>
+    enrollment.attendances.filter(
+      (attendance) => attendance.subjectId === subjectId && attendance.date.toISOString().slice(0, 10) === dateKey
+    )
+  );
+
+  if (!records.length) return "Chamada não registrada";
+
+  const present = records.filter((attendance) => attendance.status === "PRESENT").length;
+  const absent = records.filter((attendance) => attendance.status === "ABSENT").length;
+  const justified = records.filter((attendance) => attendance.status === "JUSTIFIED").length;
+  return `${present} presentes · ${absent} ausentes · ${justified} justificados`;
 }
 
 function academicYearStatusLabel(academicYear: { startsAt: Date; endsAt: Date; closedAt?: Date | null; isActive: boolean }) {
@@ -284,6 +305,51 @@ export default async function ClassroomDetailsPage({
             <AdminEmptyState
               title="Nenhum registro de frequência disponível"
               description="Os dados aparecerão quando houver chamadas registradas."
+            />
+          )}
+        </AdminSection>
+      ) : null}
+
+      {activeTab === "diario" ? (
+        <AdminSection title="Diário de classe" description="Registros de aulas lançados pelos professores.">
+          {classroom.diaryEntries.length ? (
+            <div className="overflow-x-auto">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Disciplina</th>
+                    <th>Professor</th>
+                    <th>Chamada</th>
+                    <th>Conteúdo</th>
+                    <th>Observações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {classroom.diaryEntries.map((entry) => {
+                    const attendanceSummary = diaryAttendanceSummary(classroom.enrollments, entry.subjectId, entry.date);
+                    return (
+                      <tr key={entry.id}>
+                        <td className="font-medium text-school-navy">{formatDate(entry.date)}</td>
+                        <td>{entry.subject.name}</td>
+                        <td>{entry.teacher.fullName}</td>
+                        <td className="min-w-[210px] text-sm text-text-secondary">{attendanceSummary}</td>
+                        <td className="min-w-[260px] max-w-lg whitespace-pre-wrap break-words leading-6">
+                          {entry.content}
+                        </td>
+                        <td className="min-w-[220px] max-w-md whitespace-pre-wrap break-words leading-6 text-text-secondary">
+                          {entry.notes || <span className="text-text-muted">—</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <AdminEmptyState
+              title="Nenhuma aula registrada para este período."
+              description="Os registros aparecerão aqui conforme os professores preencherem o diário."
             />
           )}
         </AdminSection>

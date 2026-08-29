@@ -9,8 +9,23 @@ import { getDemoPassword, schoolConfig } from "@/config/school";
 import { announcementCanUseClassroom, announcementRequiresClassroom } from "@/lib/announcements";
 import { findAcademicPeriodForDate, getAcademicPeriodClosingState, isAcademicPeriodClosed } from "@/lib/academic-closing";
 import { calendarDateFromInput, calendarDateTimeFromInput } from "@/lib/calendar-events";
+import {
+  initialStudentCsvImportState,
+  parseStudentImportCsv,
+  STUDENT_IMPORT_DATE_FORMAT,
+  STUDENT_IMPORT_MAX_FILE_SIZE,
+  type StudentCsvImportState,
+  type StudentImportPreviewRow,
+  type StudentImportRow
+} from "@/lib/student-import-csv";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth";
+import {
+  createEnrollmentRegistration,
+  createEnrollmentRegistrationInTransaction,
+  EnrollmentRegistrationError,
+  optionalText
+} from "@/services/enrollment-registration";
 
 const gradeValue = z.coerce.number().min(0).max(10);
 
@@ -48,6 +63,14 @@ const teacherAssignmentSchema = z.object({
   returnTo: z.string().optional()
 });
 
+const classDiarySchema = z.object({
+  classroomId: z.string().min(1),
+  subjectId: z.string().min(1),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  content: z.string().trim().min(3),
+  notes: z.string().trim().optional()
+});
+
 const subjectSchema = z.object({
   name: z.string().trim().min(2),
   code: z.string().trim().min(2).max(8)
@@ -59,15 +82,6 @@ const announcementSchema = z.object({
   audience: z.enum(["SCHOOL", "PROFESSORS", "STUDENTS", "GUARDIANS", "CLASSROOM"]),
   classroomId: z.string().trim().optional()
 });
-
-function optionalDate(value?: string) {
-  return value ? new Date(`${value}T12:00:00.000Z`) : undefined;
-}
-
-function optionalText(value?: string) {
-  const trimmed = value?.trim();
-  return trimmed || undefined;
-}
 
 function assignmentReturnPath(value: string | undefined, fallback: string) {
   return value?.startsWith("/admin/") ? value : fallback;
@@ -273,193 +287,332 @@ export async function closeAcademicYear(formData: FormData) {
 export async function createEnrollment(formData: FormData) {
   const session = await requireSession(["ADMIN"]);
   const parsed = enrollmentSchema.parse(Object.fromEntries(formData));
-  const studentCpf = optionalText(parsed.studentCpf);
-  const studentEmail = optionalText(parsed.studentEmail)?.toLowerCase();
-  const guardianCpf = optionalText(parsed.guardianCpf);
-  const guardianEmail = optionalText(parsed.guardianEmail)?.toLowerCase();
-  const guardianName = optionalText(parsed.guardianName);
-  const relation = optionalText(parsed.relation) ?? "Responsável";
+  let result: { studentId: string };
 
-  const classroom = await prisma.classroom.findFirstOrThrow({
-    where: { id: parsed.classroomId, schoolId: session.schoolId }
-  });
-  const academicYear = await prisma.academicYear.findFirstOrThrow({
-    where: { id: parsed.academicYearId, schoolId: session.schoolId }
-  });
-
-  if (classroom.academicYearId !== academicYear.id) {
-    redirectWithStatus("/admin/matriculas/nova", { erro: "turma-ano" });
-  }
-
-  const studentLookup = [
-    studentCpf ? { cpf: studentCpf } : null,
-    studentEmail ? { email: studentEmail } : null
-  ].filter(Boolean) as Array<{ cpf: string } | { email: string }>;
-
-  if (studentLookup.length) {
-    const existingStudent = await prisma.student.findFirst({
-      where: {
-        schoolId: session.schoolId,
-        OR: studentLookup
-      },
-      select: {
-        id: true,
-        enrollments: {
-          where: {
-            academicYearId: academicYear.id,
-            status: "ACTIVE"
-          },
-          select: { id: true },
-          take: 1
-        }
-      }
+  try {
+    result = await createEnrollmentRegistration({
+      ...parsed,
+      schoolId: session.schoolId,
+      userId: session.id
     });
-
-    if (existingStudent?.enrollments.length) {
-      redirectWithStatus("/admin/matriculas/nova", { erro: "matricula-ativa" });
+  } catch (error) {
+    if (error instanceof EnrollmentRegistrationError) {
+      redirectWithStatus("/admin/matriculas/nova", { erro: error.code });
     }
-
-    if (existingStudent) {
-      redirectWithStatus("/admin/matriculas/nova", { erro: "aluno-existente" });
-    }
+    throw error;
   }
-
-  if (studentEmail) {
-    const existingUser = await prisma.user.findFirst({
-      where: { schoolId: session.schoolId, email: studentEmail },
-      select: { id: true }
-    });
-    if (existingUser) redirectWithStatus("/admin/matriculas/nova", { erro: "email-aluno" });
-  }
-
-  const passwordHash = await bcrypt.hash(getDemoPassword(), 10);
-  const safeEmail =
-    studentEmail ||
-    `aluno.${Date.now()}@${schoolConfig.demo.emailDomain}`.toLowerCase();
-
-  const result = await prisma.$transaction(async (tx) => {
-    const studentUser = await tx.user.create({
-      data: {
-        schoolId: session.schoolId,
-        name: parsed.studentName,
-        email: safeEmail,
-        passwordHash,
-        role: "ALUNO"
-      }
-    });
-
-    const student = await tx.student.create({
-      data: {
-        schoolId: session.schoolId,
-        userId: studentUser.id,
-        fullName: parsed.studentName,
-        cpf: studentCpf,
-        birthDate: optionalDate(parsed.birthDate),
-        gender: optionalText(parsed.gender),
-        phone: optionalText(parsed.studentPhone),
-        email: safeEmail,
-        address: optionalText(parsed.address)
-      }
-    });
-
-    let guardianId = parsed.existingGuardianId || "";
-    if (guardianId) {
-      await tx.guardian.findFirstOrThrow({
-        where: { id: guardianId, schoolId: session.schoolId }
-      });
-    } else {
-      const guardianLookup = [
-        guardianCpf ? { cpf: guardianCpf } : null,
-        guardianEmail ? { email: guardianEmail } : null
-      ].filter(Boolean) as Array<{ cpf: string } | { email: string }>;
-      const existingGuardian = guardianLookup.length
-        ? await tx.guardian.findFirst({
-            where: {
-              schoolId: session.schoolId,
-              OR: guardianLookup
-            },
-            select: { id: true }
-          })
-        : null;
-
-      if (existingGuardian) {
-        guardianId = existingGuardian.id;
-      } else {
-        if (!guardianName) {
-          throw new Error("Informe o responsável ou selecione um responsável existente.");
-        }
-
-        const safeGuardianEmail =
-          guardianEmail ||
-          `responsavel.${Date.now()}@${schoolConfig.demo.emailDomain}`.toLowerCase();
-        const guardianUser = await tx.user.create({
-          data: {
-            schoolId: session.schoolId,
-            name: guardianName,
-            email: safeGuardianEmail,
-            passwordHash,
-            role: "RESPONSAVEL"
-          }
-        });
-        const guardian = await tx.guardian.create({
-          data: {
-            schoolId: session.schoolId,
-            userId: guardianUser.id,
-            fullName: guardianName,
-            cpf: guardianCpf,
-            relation,
-            phone: optionalText(parsed.guardianPhone),
-            email: safeGuardianEmail
-          }
-        });
-        guardianId = guardian.id;
-      }
-    }
-
-    await tx.guardianStudent.upsert({
-      where: {
-        guardianId_studentId: {
-          guardianId,
-          studentId: student.id
-        }
-      },
-      create: {
-        guardianId,
-        studentId: student.id,
-        isPrimary: true
-      },
-      update: { isPrimary: true }
-    });
-
-    const enrollment = await tx.enrollment.create({
-      data: {
-        schoolId: session.schoolId,
-        studentId: student.id,
-        classroomId: classroom.id,
-        academicYearId: academicYear.id,
-        registration: `${academicYear.year}${Date.now().toString().slice(-5)}`,
-        enrolledAt: new Date(`${parsed.enrolledAt}T12:00:00.000Z`),
-        status: "ACTIVE"
-      }
-    });
-
-    await tx.auditLog.create({
-      data: {
-        schoolId: session.schoolId,
-        userId: session.id,
-        action: "enrollment.created",
-        entity: "Enrollment",
-        entityId: enrollment.id
-      }
-    });
-
-    return { studentId: student.id };
-  });
 
   revalidatePath("/admin/alunos");
   revalidatePath("/admin/matriculas");
   revalidatePath("/admin/dashboard");
   redirect(`/admin/alunos/${result.studentId}?sucesso=matricula`);
+}
+
+function parseImportDate(value: string) {
+  const match = value.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return null;
+
+  const [, day, month, year] = match;
+  const isoDate = `${year}-${month}-${day}`;
+  const parsed = new Date(`${isoDate}T12:00:00.000Z`);
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.getUTCFullYear() !== Number(year) ||
+    parsed.getUTCMonth() + 1 !== Number(month) ||
+    parsed.getUTCDate() !== Number(day)
+  ) {
+    return null;
+  }
+
+  return isoDate;
+}
+
+function normalizeImportKey(value: string) {
+  return value.trim().toLowerCase();
+}
+
+async function buildStudentImportPreview(schoolId: string, rows: StudentImportRow[]) {
+  const [classrooms, academicYears] = await Promise.all([
+    prisma.classroom.findMany({
+      where: { schoolId },
+      select: { id: true, name: true, academicYearId: true }
+    }),
+    prisma.academicYear.findMany({
+      where: { schoolId },
+      select: { id: true, year: true }
+    })
+  ]);
+  const yearsByValue = new Map(academicYears.map((year) => [String(year.year), year]));
+  const classroomsByYearAndName = new Map(
+    classrooms.map((classroom) => [`${classroom.academicYearId}::${normalizeImportKey(classroom.name)}`, classroom])
+  );
+  const seenRegistrations = new Set<string>();
+  const seenStudentEmails = new Set<string>();
+  const seenStudentCpfs = new Set<string>();
+  const previewRows: StudentImportPreviewRow[] = [];
+  const validRows: StudentImportRow[] = [];
+
+  for (const row of rows) {
+    const errors: string[] = [];
+    const studentEmail = optionalText(row.studentEmail)?.toLowerCase();
+    const guardianEmail = optionalText(row.guardianEmail)?.toLowerCase();
+    const studentCpf = optionalText(row.studentCpf);
+    const guardianCpf = optionalText(row.guardianCpf);
+    const registration = optionalText(row.registration);
+
+    if (!optionalText(row.studentName)) errors.push("Informe o nome do aluno.");
+    if (!optionalText(row.guardianName) && !guardianCpf && !guardianEmail) {
+      errors.push("Informe o responsável ou dados suficientes para localizar um responsável existente.");
+    }
+    if (!optionalText(row.classroomName)) errors.push("Informe a turma.");
+    if (!optionalText(row.academicYear)) errors.push("Informe o ano letivo.");
+    if (!parseImportDate(row.enrolledAt)) {
+      errors.push(`Informe a data de entrada no formato ${STUDENT_IMPORT_DATE_FORMAT}.`);
+    }
+    if (row.birthDate && !parseImportDate(row.birthDate)) {
+      errors.push(`Informe a data de nascimento no formato ${STUDENT_IMPORT_DATE_FORMAT}.`);
+    }
+    if (studentEmail && !z.string().email().safeParse(studentEmail).success) errors.push("E-mail do aluno inválido.");
+    if (guardianEmail && !z.string().email().safeParse(guardianEmail).success) {
+      errors.push("E-mail do responsável inválido.");
+    }
+
+    const academicYear = yearsByValue.get(row.academicYear.trim());
+    if (!academicYear && optionalText(row.academicYear)) errors.push("Ano letivo não encontrado.");
+    const classroom = academicYear
+      ? classroomsByYearAndName.get(`${academicYear.id}::${normalizeImportKey(row.classroomName)}`)
+      : null;
+    if (academicYear && !classroom) errors.push("Turma não encontrada para o ano letivo informado.");
+
+    if (registration) {
+      const registrationKey = normalizeImportKey(registration);
+      if (seenRegistrations.has(registrationKey)) errors.push("Matrícula duplicada no arquivo.");
+      seenRegistrations.add(registrationKey);
+      const existingRegistration = await prisma.enrollment.findUnique({
+        where: { schoolId_registration: { schoolId, registration } },
+        select: { id: true }
+      });
+      if (existingRegistration) errors.push("Matrícula já cadastrada no sistema.");
+    }
+
+    if (studentEmail) {
+      if (seenStudentEmails.has(studentEmail)) errors.push("E-mail do aluno duplicado no arquivo.");
+      seenStudentEmails.add(studentEmail);
+    }
+    if (studentCpf) {
+      const cpfKey = normalizeImportKey(studentCpf);
+      if (seenStudentCpfs.has(cpfKey)) errors.push("CPF do aluno duplicado no arquivo.");
+      seenStudentCpfs.add(cpfKey);
+    }
+
+    const studentLookup = [
+      studentCpf ? { cpf: studentCpf } : null,
+      studentEmail ? { email: studentEmail } : null
+    ].filter(Boolean) as Array<{ cpf: string } | { email: string }>;
+    if (studentLookup.length) {
+      const existingStudent = await prisma.student.findFirst({
+        where: { schoolId, OR: studentLookup },
+        select: { id: true }
+      });
+      if (existingStudent) errors.push("Aluno já cadastrado no sistema.");
+    }
+
+    if (studentEmail) {
+      const existingStudentUser = await prisma.user.findFirst({
+        where: { schoolId, email: studentEmail },
+        select: { id: true }
+      });
+      if (existingStudentUser) errors.push("E-mail do aluno já existe no sistema.");
+    }
+
+    const [guardianByCpf, guardianByEmail] = await Promise.all([
+      guardianCpf
+        ? prisma.guardian.findFirst({ where: { schoolId, cpf: guardianCpf }, select: { id: true } })
+        : null,
+      guardianEmail
+        ? prisma.guardian.findFirst({ where: { schoolId, email: guardianEmail }, select: { id: true } })
+        : null
+    ]);
+    if (guardianByCpf && guardianByEmail && guardianByCpf.id !== guardianByEmail.id) {
+      errors.push("CPF e e-mail do responsável apontam para cadastros diferentes.");
+    }
+    if (guardianEmail && !guardianByCpf && !guardianByEmail) {
+      const existingGuardianUser = await prisma.user.findFirst({
+        where: { schoolId, email: guardianEmail },
+        select: { id: true }
+      });
+      if (existingGuardianUser) errors.push("E-mail do responsável já existe no sistema.");
+    }
+
+    const previewRow: StudentImportPreviewRow = {
+      ...row,
+      studentEmail: studentEmail ?? "",
+      guardianEmail: guardianEmail ?? "",
+      status: errors.length ? "error" : "valid",
+      errors
+    };
+    previewRows.push(previewRow);
+    if (!errors.length) validRows.push(previewRow);
+  }
+
+  return {
+    status: previewRows.some((row) => row.status === "error") ? "error" : "preview",
+    totalRows: previewRows.length,
+    validRows: validRows.length,
+    rows: previewRows,
+    payload: JSON.stringify(validRows)
+  } satisfies StudentCsvImportState;
+}
+
+export async function validateStudentCsvImport(
+  _state: StudentCsvImportState,
+  formData: FormData
+): Promise<StudentCsvImportState> {
+  const session = await requireSession(["ADMIN"]);
+  const file = formData.get("csvFile");
+  if (!(file instanceof File)) {
+    return { ...initialStudentCsvImportState, status: "error", message: "Selecione um arquivo CSV." };
+  }
+  if (!file.name.toLowerCase().endsWith(".csv")) {
+    return { ...initialStudentCsvImportState, status: "error", message: "Envie um arquivo com extensão .csv." };
+  }
+  if (file.size > STUDENT_IMPORT_MAX_FILE_SIZE) {
+    return { ...initialStudentCsvImportState, status: "error", message: "O arquivo CSV excede o tamanho permitido." };
+  }
+
+  const parsed = parseStudentImportCsv(await file.text());
+  if (parsed.errors.length && !parsed.rows.length) {
+    return { ...initialStudentCsvImportState, status: "error", message: parsed.errors.join(" ") };
+  }
+
+  const preview = await buildStudentImportPreview(session.schoolId, parsed.rows);
+  if (parsed.errors.length) {
+    return {
+      ...preview,
+      status: "error",
+      payload: undefined,
+      message: parsed.errors.join(" ")
+    };
+  }
+
+  return {
+    ...preview,
+    message: preview.status === "error"
+        ? "Revise os erros antes de confirmar a importação."
+        : "Arquivo validado. Confira os dados antes de confirmar."
+  };
+}
+
+export async function confirmStudentCsvImport(
+  _state: StudentCsvImportState,
+  formData: FormData
+): Promise<StudentCsvImportState> {
+  const session = await requireSession(["ADMIN"]);
+  const payload = String(formData.get("payload") ?? "");
+  let rows: StudentImportRow[] = [];
+
+  try {
+    rows = JSON.parse(payload) as StudentImportRow[];
+  } catch {
+    return { ...initialStudentCsvImportState, status: "error", message: "Pré-visualização inválida. Valide o CSV novamente." };
+  }
+
+  const preview = await buildStudentImportPreview(session.schoolId, rows);
+  if (preview.status === "error" || !preview.validRows) {
+    return {
+      ...preview,
+      message: "Os dados mudaram ou ainda possuem erros. Valide o CSV novamente antes de confirmar."
+    };
+  }
+
+  let created = 0;
+  try {
+    created = await prisma.$transaction(async (tx) => {
+      const createdIds: string[] = [];
+      for (const row of rows) {
+        const enrolledAt = parseImportDate(row.enrolledAt);
+        const birthDate = row.birthDate ? parseImportDate(row.birthDate) : undefined;
+        if (!enrolledAt || birthDate === null) {
+          throw new Error("Data inválida após a pré-validação.");
+        }
+        const academicYear = await tx.academicYear.findFirstOrThrow({
+          where: { schoolId: session.schoolId, year: Number(row.academicYear) },
+          select: { id: true }
+        });
+        const classroom = await tx.classroom.findFirstOrThrow({
+          where: {
+            schoolId: session.schoolId,
+            academicYearId: academicYear.id,
+            name: { equals: row.classroomName, mode: "insensitive" }
+          },
+          select: { id: true }
+        });
+        const result = await createEnrollmentRegistrationInTransaction(tx, {
+          schoolId: session.schoolId,
+          userId: session.id,
+          studentName: row.studentName,
+          studentCpf: row.studentCpf,
+          birthDate,
+          studentPhone: row.studentPhone,
+          studentEmail: row.studentEmail,
+          guardianName: row.guardianName,
+          guardianCpf: row.guardianCpf,
+          relation: row.relation,
+          guardianPhone: row.guardianPhone,
+          guardianEmail: row.guardianEmail,
+          academicYearId: academicYear.id,
+          classroomId: classroom.id,
+          enrolledAt,
+          registration: row.registration,
+          auditAction: "student_import.enrollment_created"
+        });
+        createdIds.push(result.enrollmentId);
+      }
+
+      await tx.auditLog.create({
+        data: {
+          schoolId: session.schoolId,
+          userId: session.id,
+          action: "student_import.completed",
+          entity: "Enrollment",
+          entityId: createdIds[0] ?? "student-import"
+        }
+      });
+
+      return createdIds.length;
+    });
+  } catch (error) {
+    if (error instanceof EnrollmentRegistrationError) {
+      return {
+        ...preview,
+        status: "error",
+        payload: undefined,
+        message: `A importação foi interrompida: ${error.message}`
+      };
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return {
+        ...preview,
+        status: "error",
+        payload: undefined,
+        message: "A importação foi interrompida por dados duplicados. Valide o CSV novamente."
+      };
+    }
+    throw error;
+  }
+
+  revalidatePath("/admin/alunos");
+  revalidatePath("/admin/matriculas");
+  revalidatePath("/admin/dashboard");
+
+  return {
+    ...initialStudentCsvImportState,
+    status: "success",
+    totalRows: rows.length,
+    validRows: rows.length,
+    createdRows: created,
+    message: `${created} matrícula${created === 1 ? "" : "s"} criada${created === 1 ? "" : "s"} com sucesso.`
+  };
 }
 
 export async function createGuardian(formData: FormData) {
@@ -821,6 +974,87 @@ export async function saveAttendance(formData: FormData) {
   redirect(
     `/professor/turmas/${classroomId}?tab=frequencia&subjectId=${subjectId}&data=${dateValue}&salvo=1`
   );
+}
+
+export async function saveClassDiaryEntry(formData: FormData) {
+  const session = await requireSession(["PROFESSOR"]);
+  const parsed = classDiarySchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) {
+    redirectWithStatus("/professor/turmas", { erro: "diario-validacao" });
+  }
+
+  const { classroomId, subjectId, date: dateValue, content, notes } = parsed.data;
+  const date = new Date(`${dateValue}T12:00:00.000Z`);
+  const teacher = await prisma.teacher.findFirstOrThrow({
+    where: { schoolId: session.schoolId, userId: session.id }
+  });
+  const assignment = await prisma.teacherSubject.findFirstOrThrow({
+    where: {
+      schoolId: session.schoolId,
+      teacherId: teacher.id,
+      classroomId,
+      subjectId
+    },
+    include: { classroom: { select: { academicYearId: true } } }
+  });
+
+  const periods = await prisma.academicPeriod.findMany({
+    where: {
+      schoolId: session.schoolId,
+      academicYearId: assignment.classroom.academicYearId
+    },
+    include: { academicYear: true }
+  });
+  const period = findAcademicPeriodForDate(periods, date);
+  if (!period) {
+    redirect(
+      `/professor/turmas/${classroomId}?tab=diario&subjectId=${subjectId}&data=${dateValue}&erro=periodo-data`
+    );
+  }
+  if (isAcademicPeriodClosed(period)) {
+    redirect(
+      `/professor/turmas/${classroomId}?tab=diario&subjectId=${subjectId}&data=${dateValue}&erro=periodo-encerrado`
+    );
+  }
+
+  const entry = await prisma.classDiaryEntry.upsert({
+    where: {
+      schoolId_classroomId_subjectId_teacherId_date: {
+        schoolId: session.schoolId,
+        classroomId,
+        subjectId,
+        teacherId: teacher.id,
+        date
+      }
+    },
+    create: {
+      schoolId: session.schoolId,
+      classroomId,
+      subjectId,
+      teacherId: teacher.id,
+      date,
+      content,
+      notes: notes || null
+    },
+    update: {
+      content,
+      notes: notes || null
+    }
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      schoolId: session.schoolId,
+      userId: session.id,
+      action: "class_diary.upserted",
+      entity: "ClassDiaryEntry",
+      entityId: entry.id
+    }
+  });
+
+  revalidatePath(`/professor/turmas/${classroomId}`);
+  revalidatePath(`/admin/turmas/${classroomId}`);
+  redirect(`/professor/turmas/${classroomId}?tab=diario&subjectId=${subjectId}&data=${dateValue}&salvo=diario`);
 }
 
 export async function createSubject(formData: FormData) {

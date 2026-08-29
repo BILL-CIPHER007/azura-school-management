@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { EnrollmentStatus } from "@prisma/client";
+import { Upload } from "lucide-react";
 import { AdminEnrollmentFilters } from "@/app/admin/matriculas/admin-enrollment-filters";
 import { AdminEmptyState, AdminPageHeader, AdminToolbar } from "@/components/admin/admin-ui";
 import { RowActions } from "@/components/admin/row-actions";
@@ -40,9 +41,17 @@ export default async function EnrollmentsPage({
         description="Acompanhe vínculos acadêmicos, responsáveis, turmas e status."
         breadcrumbs={[{ label: "Admin", href: "/admin/dashboard" }, { label: "Matrículas" }]}
         action={
-          <Button asChild>
-            <Link href="/admin/matriculas/nova">Nova matrícula</Link>
-          </Button>
+          <>
+            <Button asChild variant="outline">
+              <Link href="/admin/matriculas/importar">
+                <Upload className="h-4 w-4" />
+                Importar alunos
+              </Link>
+            </Button>
+            <Button asChild>
+              <Link href="/admin/matriculas/nova">Nova matrícula</Link>
+            </Button>
+          </>
         }
       />
 
