@@ -5,9 +5,31 @@ type PdfTextOptions = {
   align?: "left" | "right" | "center";
 };
 
+type PdfTableColumn = {
+  text: string;
+  width: number;
+  align?: "left" | "right" | "center";
+};
+
+type PdfTableCell = {
+  text: string;
+  bold?: boolean;
+  color?: string;
+  align?: "left" | "right" | "center";
+};
+
+type PdfTableOptions = {
+  size?: number;
+  headerFill?: string;
+  headerColor?: string;
+  borderColor?: string;
+  zebraFill?: string;
+};
+
 const PAGE_WIDTH = 595.28;
 const PAGE_HEIGHT = 841.89;
 const MARGIN = 48;
+const FOOTER_HEIGHT = 52;
 
 function hexToRgb(color = "#0b2d63") {
   const normalized = color.replace("#", "");
@@ -58,6 +80,7 @@ function wrapText(value: string, maxWidth: number, size: number) {
 export class SimplePdf {
   private pages: string[][] = [[]];
   private y = PAGE_HEIGHT - MARGIN;
+  private footer?: { left: string; right?: string };
 
   private get ops() {
     return this.pages[this.pages.length - 1];
@@ -68,8 +91,80 @@ export class SimplePdf {
     this.y = PAGE_HEIGHT - MARGIN;
   }
 
-  private ensureSpace(height: number) {
-    if (this.y - height < MARGIN) this.addPage();
+  ensureSpace(height: number) {
+    if (this.y - height < MARGIN + FOOTER_HEIGHT) this.addPage();
+  }
+
+  private textOp(value: string, x: number, y: number, options: PdfTextOptions = {}) {
+    const size = options.size ?? 10;
+    const { r, g, b } = hexToRgb(options.color);
+    const font = options.bold ? "F2" : "F1";
+    const lineWidth = textWidth(value, size);
+    const textX =
+      options.align === "right" ? PAGE_WIDTH - MARGIN - lineWidth : options.align === "center" ? (PAGE_WIDTH - lineWidth) / 2 : x;
+
+    return `BT /${font} ${size} Tf ${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} rg 1 0 0 1 ${textX.toFixed(
+      2
+    )} ${y.toFixed(2)} Tm (${escapePdfText(value)}) Tj ET`;
+  }
+
+  private rectOp(x: number, y: number, width: number, height: number, options: { fill?: string; stroke?: string; strokeWidth?: number }) {
+    const ops: string[] = [];
+    if (options.fill) {
+      const { r, g, b } = hexToRgb(options.fill);
+      ops.push(`${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} rg ${x.toFixed(2)} ${y.toFixed(2)} ${width.toFixed(2)} ${height.toFixed(2)} re f`);
+    }
+    if (options.stroke) {
+      const { r, g, b } = hexToRgb(options.stroke);
+      ops.push(
+        `${(options.strokeWidth ?? 0.8).toFixed(2)} w ${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} RG ${x.toFixed(
+          2
+        )} ${y.toFixed(2)} ${width.toFixed(2)} ${height.toFixed(2)} re S`
+      );
+    }
+    return ops;
+  }
+
+  get pageWidth() {
+    return PAGE_WIDTH;
+  }
+
+  get pageHeight() {
+    return PAGE_HEIGHT;
+  }
+
+  get margin() {
+    return MARGIN;
+  }
+
+  get contentWidth() {
+    return PAGE_WIDTH - MARGIN * 2;
+  }
+
+  get cursorY() {
+    return this.y;
+  }
+
+  setFooter(left: string, right?: string) {
+    this.footer = { left, right };
+  }
+
+  textAt(value: string, x: number, y: number, options: PdfTextOptions = {}) {
+    this.ops.push(this.textOp(value, x, y, options));
+  }
+
+  rect(x: number, y: number, width: number, height: number, options: { fill?: string; stroke?: string; strokeWidth?: number }) {
+    this.ops.push(...this.rectOp(x, y, width, height, options));
+  }
+
+  lineAt(x1: number, y1: number, x2: number, y2: number, color = "#d7e2f0", width = 0.8) {
+    const { r, g, b } = hexToRgb(color);
+    this.ops.push(`${width.toFixed(2)} w ${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} RG ${x1.toFixed(2)} ${y1.toFixed(2)} m ${x2.toFixed(2)} ${y2.toFixed(2)} l S`);
+  }
+
+  moveDown(size: number) {
+    this.ensureSpace(size);
+    this.y -= size;
   }
 
   text(value: string, x = MARGIN, options: PdfTextOptions = {}) {
@@ -81,17 +176,7 @@ export class SimplePdf {
     this.ensureSpace(lines.length * lineHeight);
 
     for (const line of lines) {
-      const { r, g, b } = hexToRgb(options.color);
-      const font = options.bold ? "F2" : "F1";
-      const lineWidth = textWidth(line, size);
-      const textX =
-        options.align === "right" ? PAGE_WIDTH - MARGIN - lineWidth : options.align === "center" ? (PAGE_WIDTH - lineWidth) / 2 : x;
-
-      this.ops.push(
-        `BT /${font} ${size} Tf ${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} rg 1 0 0 1 ${textX.toFixed(2)} ${this.y.toFixed(
-          2
-        )} Tm (${escapePdfText(line)}) Tj ET`
-      );
+      this.ops.push(this.textOp(line, x, this.y, options));
       this.y -= lineHeight;
     }
   }
@@ -142,10 +227,108 @@ export class SimplePdf {
 
   line() {
     this.ensureSpace(12);
-    this.ops.push(
-      `0.84 0.88 0.94 RG ${MARGIN} ${this.y.toFixed(2)} m ${(PAGE_WIDTH - MARGIN).toFixed(2)} ${this.y.toFixed(2)} l S`
-    );
+    this.lineAt(MARGIN, this.y, PAGE_WIDTH - MARGIN, this.y, "#d7e2f0");
     this.y -= 12;
+  }
+
+  table(columns: PdfTableColumn[], rows: PdfTableCell[][], options: PdfTableOptions = {}) {
+    const size = options.size ?? 8;
+    const lineHeight = size + 4;
+    const paddingX = 6;
+    const paddingY = 7;
+    const headerFill = options.headerFill ?? "#062b63";
+    const headerColor = options.headerColor ?? "#ffffff";
+    const borderColor = options.borderColor ?? "#d7e2f0";
+    const zebraFill = options.zebraFill ?? "#f6f9fe";
+
+    const drawHeader = () => {
+      const headerHeight = size + paddingY * 2;
+      this.ensureSpace(headerHeight + 12);
+      const y = this.y - headerHeight;
+      this.rect(MARGIN, y, this.contentWidth, headerHeight, { fill: headerFill });
+
+      let x = MARGIN;
+      columns.forEach((column) => {
+        const availableWidth = column.width - paddingX * 2;
+        const width = textWidth(column.text, size);
+        const textX =
+          column.align === "right"
+            ? x + paddingX + Math.max(availableWidth - width, 0)
+            : column.align === "center"
+              ? x + paddingX + Math.max((availableWidth - width) / 2, 0)
+              : x + paddingX;
+        this.textAt(column.text, textX, y + paddingY + 2, {
+          size,
+          bold: true,
+          color: headerColor
+        });
+        x += column.width;
+      });
+
+      this.y = y;
+    };
+
+    drawHeader();
+
+    rows.forEach((row, rowIndex) => {
+      const cellLines = row.map((cell, cellIndex) =>
+        wrapText(cell.text, Math.max(columns[cellIndex]?.width ?? 70, 20) - paddingX * 2, size)
+      );
+      const rowHeight = Math.max(...cellLines.map((lines) => lines.length), 1) * lineHeight + paddingY * 2;
+
+      if (this.y - rowHeight < MARGIN + FOOTER_HEIGHT) {
+        this.addPage();
+        drawHeader();
+      }
+
+      const y = this.y - rowHeight;
+      if (rowIndex % 2 === 1) {
+        this.rect(MARGIN, y, this.contentWidth, rowHeight, { fill: zebraFill });
+      }
+      this.lineAt(MARGIN, y, PAGE_WIDTH - MARGIN, y, borderColor, 0.6);
+
+      let x = MARGIN;
+      row.forEach((cell, cellIndex) => {
+        const column = columns[cellIndex];
+        let lineY = y + rowHeight - paddingY - size;
+        for (const line of cellLines[cellIndex] ?? [""]) {
+          const availableWidth = Math.max((column?.width ?? 70) - paddingX * 2, 20);
+          const width = textWidth(line, size);
+          const align = cell.align ?? column?.align;
+          const textX =
+            align === "right"
+              ? x + paddingX + Math.max(availableWidth - width, 0)
+              : align === "center"
+                ? x + paddingX + Math.max((availableWidth - width) / 2, 0)
+                : x + paddingX;
+          this.textAt(line, textX, lineY, {
+            size,
+            bold: cell.bold,
+            color: cell.color ?? "#0b2d63"
+          });
+          lineY -= lineHeight;
+        }
+        x += column?.width ?? 70;
+      });
+
+      this.y = y;
+    });
+
+    this.y -= 10;
+  }
+
+  private footerOps(pageNumber: number, totalPages: number) {
+    if (!this.footer) return [];
+
+    const footerY = 34;
+    const ops = [
+      ...this.rectOp(0, 0, PAGE_WIDTH, FOOTER_HEIGHT - 10, { fill: "#062b63" }),
+      this.textOp(this.footer.left, MARGIN, footerY, { size: 8, color: "#ffffff" }),
+      this.textOp(this.footer.right ?? "Azura", PAGE_WIDTH - MARGIN - 96, footerY, { size: 8, bold: true, color: "#ffffff" }),
+      this.textOp(`Pagina ${pageNumber} de ${totalPages}`, PAGE_WIDTH - MARGIN - 18, 18, { size: 7, color: "#dbeafe", align: "right" })
+    ];
+
+    return ops;
   }
 
   build() {
@@ -158,8 +341,9 @@ export class SimplePdf {
     objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
     objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>");
 
-    for (const pageOps of this.pages) {
-      const stream = pageOps.join("\n");
+    const totalPages = this.pages.length;
+    for (const [pageIndex, pageOps] of this.pages.entries()) {
+      const stream = [...pageOps, ...this.footerOps(pageIndex + 1, totalPages)].join("\n");
       const contentId = objects.length + 1;
       contentObjectIds.push(contentId);
       objects.push(`<< /Length ${Buffer.byteLength(stream, "latin1")} >>\nstream\n${stream}\nendstream`);

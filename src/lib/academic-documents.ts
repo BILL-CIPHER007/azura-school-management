@@ -32,7 +32,25 @@ type DeclarationEnrollment = {
   classroom: { name: string; gradeLevel: string; shift: Shift };
 };
 
-const ISSUED_AT_LABEL = "Emitido automaticamente pelo Sistema de Gestão Escolar Azura.";
+type InfoItem = {
+  label: string;
+  value?: string | null;
+};
+
+const ISSUED_AT_LABEL = "Documento gerado eletronicamente pelo Sistema de Gestão Escolar Azura.";
+
+const pdfTheme = {
+  navy: "#062b63",
+  navyText: "#08285c",
+  blue: "#0f63ff",
+  blueSoft: "#eef5ff",
+  border: "#d8e5f5",
+  muted: "#61718a",
+  row: "#f7faff",
+  success: "#0f7a45",
+  warning: "#b45309",
+  danger: "#b91c1c"
+};
 
 function filenamePart(value: string) {
   return value
@@ -51,88 +69,165 @@ function documentFilename(kind: string, studentName: string) {
   return `${kind}-${filenamePart(studentName) || "aluno"}.pdf`;
 }
 
-function addDocumentHeader(pdf: SimplePdf, title: string, schoolName: string, studentName: string) {
-  pdf.heading(title, `${schoolName} - ${studentName}`);
-  pdf.text(ISSUED_AT_LABEL, undefined, { size: 9, color: "#5b6b82" });
-  pdf.text(`Data de emissão: ${formatDate(new Date())}`, undefined, { size: 9, color: "#5b6b82" });
-  pdf.line();
+function statusColor(value: string) {
+  const normalized = value.toLowerCase();
+  if (normalized.includes("aprov") || normalized.includes("regular") || normalized.includes("cursando")) return pdfTheme.success;
+  if (normalized.includes("recuper") || normalized.includes("aten")) return pdfTheme.warning;
+  if (normalized.includes("reprov") || normalized.includes("baixa")) return pdfTheme.danger;
+  return pdfTheme.navyText;
+}
+
+function valueOrDash(value?: string | null) {
+  return value && value.trim() ? value : "-";
+}
+
+function drawDocumentFrame(pdf: SimplePdf, schoolName: string) {
+  pdf.setFooter(ISSUED_AT_LABEL, "Azura");
+
+  const topY = pdf.cursorY - 8;
+  pdf.textAt(schoolName, pdf.margin, topY, { size: 15, bold: true, color: pdfTheme.navy });
+  pdf.textAt("Documento acadêmico", pdf.margin, topY - 16, { size: 9, color: pdfTheme.muted });
+  pdf.textAt("Azura", pdf.margin, topY, { size: 14, bold: true, color: pdfTheme.blue, align: "right" });
+  pdf.textAt("Sistema de Gestão Escolar", pdf.margin, topY - 15, { size: 8, color: pdfTheme.muted, align: "right" });
+  pdf.lineAt(pdf.margin, topY - 30, pdf.pageWidth - pdf.margin, topY - 30, pdfTheme.navy, 1.2);
+  pdf.moveDown(58);
+}
+
+function drawTitle(pdf: SimplePdf, title: string, subtitle?: string) {
+  pdf.ensureSpace(64);
+  pdf.text(title, pdf.margin, { size: 22, bold: true, color: pdfTheme.navy });
+  if (subtitle) pdf.text(subtitle, pdf.margin, { size: 9, color: pdfTheme.muted });
+  pdf.moveDown(8);
+}
+
+function drawSectionTitle(pdf: SimplePdf, title: string) {
+  pdf.ensureSpace(32);
+  pdf.text(title, pdf.margin, { size: 12, bold: true, color: pdfTheme.navy });
+  pdf.lineAt(pdf.margin, pdf.cursorY + 4, pdf.margin + 34, pdf.cursorY + 4, pdfTheme.blue, 1.5);
+  pdf.moveDown(5);
+}
+
+function drawInfoGrid(pdf: SimplePdf, items: InfoItem[], columns = 3) {
+  const gap = 10;
+  const rows = Math.ceil(items.length / columns);
+  const cellWidth = (pdf.contentWidth - gap * (columns - 1)) / columns;
+  const cellHeight = 45;
+  const totalHeight = rows * cellHeight + Math.max(rows - 1, 0) * gap;
+
+  pdf.ensureSpace(totalHeight + 10);
+  const startY = pdf.cursorY;
+
+  items.forEach((item, index) => {
+    const row = Math.floor(index / columns);
+    const column = index % columns;
+    const x = pdf.margin + column * (cellWidth + gap);
+    const y = startY - (row + 1) * cellHeight - row * gap;
+    pdf.rect(x, y, cellWidth, cellHeight, { fill: "#ffffff", stroke: pdfTheme.border, strokeWidth: 0.7 });
+    pdf.textAt(item.label, x + 10, y + cellHeight - 17, { size: 7, bold: true, color: pdfTheme.muted });
+    pdf.textAt(valueOrDash(item.value), x + 10, y + cellHeight - 32, { size: 9, bold: true, color: pdfTheme.navyText });
+  });
+
+  pdf.moveDown(totalHeight + 12);
+}
+
+function drawSummaryGrid(pdf: SimplePdf, items: InfoItem[]) {
+  const columns = Math.min(items.length, 4);
+  const gap = 8;
+  const cellWidth = (pdf.contentWidth - gap * (columns - 1)) / columns;
+  const cellHeight = 54;
+
+  pdf.ensureSpace(cellHeight + 16);
+  const y = pdf.cursorY - cellHeight;
+  pdf.rect(pdf.margin, y, pdf.contentWidth, cellHeight, { fill: pdfTheme.blueSoft, stroke: pdfTheme.border, strokeWidth: 0.7 });
+
+  items.forEach((item, index) => {
+    const x = pdf.margin + index * (cellWidth + gap);
+    if (index > 0) pdf.lineAt(x - gap / 2, y + 10, x - gap / 2, y + cellHeight - 10, pdfTheme.border, 0.6);
+    pdf.textAt(item.label, x + 10, y + cellHeight - 20, { size: 7, bold: true, color: pdfTheme.muted });
+    pdf.textAt(valueOrDash(item.value), x + 10, y + cellHeight - 38, {
+      size: 11,
+      bold: true,
+      color: item.label.toLowerCase().includes("situação") ? statusColor(item.value ?? "") : pdfTheme.navy
+    });
+  });
+
+  pdf.moveDown(cellHeight + 16);
+}
+
+function drawNote(pdf: SimplePdf, title: string, text: string, color = pdfTheme.muted) {
+  pdf.ensureSpace(54);
+  const height = 48;
+  const y = pdf.cursorY - height;
+  pdf.rect(pdf.margin, y, pdf.contentWidth, height, { fill: pdfTheme.blueSoft, stroke: pdfTheme.border, strokeWidth: 0.7 });
+  pdf.textAt(title, pdf.margin + 12, y + 29, { size: 9, bold: true, color: pdfTheme.navy });
+  pdf.textAt(text, pdf.margin + 12, y + 14, { size: 8, color });
+  pdf.moveDown(height + 12);
+}
+
+function drawMetadata(pdf: SimplePdf, studentName: string) {
+  pdf.text(`Aluno(a): ${studentName}`, pdf.margin, { size: 9, bold: true, color: pdfTheme.navyText });
+  pdf.text(ISSUED_AT_LABEL, pdf.margin, { size: 8, color: pdfTheme.muted });
+  pdf.text(`Data de emissão: ${formatDate(new Date())}`, pdf.margin, { size: 8, color: pdfTheme.navyText });
+  pdf.moveDown(8);
 }
 
 function addEnrollmentSummary(pdf: SimplePdf, enrollment: AcademicHistoryEnrollment) {
-  pdf.row(
+  drawSummaryGrid(pdf, [
+    { label: "Ano letivo", value: String(enrollment.academicYear.year) },
+    { label: "Turma", value: `${enrollment.classroom.name} · ${enrollment.classroom.gradeLevel}` },
+    { label: "Turno", value: shiftLabel(enrollment.classroom.shift) },
+    { label: "Situação", value: enrollment.situation }
+  ]);
+
+  drawInfoGrid(
+    pdf,
     [
-      { text: "Ano letivo", width: 82, bold: true },
-      { text: String(enrollment.academicYear.year), width: 80 },
-      { text: "Turma", width: 62, bold: true },
-      { text: `${enrollment.classroom.name} - ${enrollment.classroom.gradeLevel}`, width: 170 },
-      { text: "Turno", width: 54, bold: true },
-      { text: shiftLabel(enrollment.classroom.shift), width: 51 }
+      { label: "Matrícula", value: enrollment.registration },
+      { label: "Status da matrícula", value: enrollmentStatusLabel(enrollment.enrollmentStatus) },
+      { label: "Estado do ano", value: enrollment.yearStateLabel },
+      { label: "Média geral", value: formatGrade(enrollment.generalAverage) },
+      {
+        label: "Frequência geral",
+        value: enrollment.overallAttendanceRate === null ? "-" : formatPercent(enrollment.overallAttendanceRate)
+      },
+      { label: "Aulas registradas", value: String(enrollment.attendanceTotal) }
     ],
-    { size: 9 }
-  );
-  pdf.row(
-    [
-      { text: "Matrícula", width: 82, bold: true },
-      { text: enrollment.registration, width: 120 },
-      { text: "Status", width: 62, bold: true },
-      { text: enrollmentStatusLabel(enrollment.enrollmentStatus), width: 110 },
-      { text: "Situação", width: 70, bold: true },
-      { text: enrollment.situation, width: 55 }
-    ],
-    { size: 9 }
-  );
-  pdf.row(
-    [
-      { text: "Média geral", width: 82, bold: true },
-      { text: formatGrade(enrollment.generalAverage), width: 120 },
-      { text: "Frequência", width: 82, bold: true },
-      { text: enrollment.overallAttendanceRate === null ? "-" : formatPercent(enrollment.overallAttendanceRate), width: 110 },
-      { text: "Estado", width: 70, bold: true },
-      { text: enrollment.yearStateLabel, width: 35 }
-    ],
-    { size: 9 }
+    3
   );
 }
 
 export function buildAcademicHistoryPdf(input: { schoolName: string; history: AcademicHistoryData }) {
   const pdf = new SimplePdf();
-  addDocumentHeader(pdf, "Histórico escolar", input.schoolName, input.history.student.fullName);
+  drawDocumentFrame(pdf, input.schoolName);
+  drawTitle(pdf, "Histórico Escolar");
+  drawMetadata(pdf, input.history.student.fullName);
+
+  if (!input.history.enrollments.length) {
+    drawNote(pdf, "Histórico escolar", "Nenhuma matrícula encontrada para este aluno.");
+  }
 
   for (const enrollment of input.history.enrollments) {
-    pdf.section(`${enrollment.academicYear.year} - ${enrollment.classroom.name}`);
+    drawSectionTitle(pdf, String(enrollment.academicYear.year));
     addEnrollmentSummary(pdf, enrollment);
 
     if (!enrollment.isClosed) {
-      pdf.text("Registro parcial: o ano letivo ainda está em andamento.", undefined, { size: 9, color: "#b45309" });
+      drawNote(pdf, "Registro parcial", "O ano letivo ainda está em andamento.", pdfTheme.warning);
     }
 
-    pdf.gap(4);
-    pdf.row(
+    pdf.table(
       [
-        { text: "Disciplina", width: 160, bold: true },
-        { text: "Períodos", width: 155, bold: true },
-        { text: "Média", width: 60, bold: true },
-        { text: "Frequência", width: 75, bold: true },
-        { text: "Situação", width: 70, bold: true }
+        { text: "Disciplina", width: 205 },
+        { text: "Média", width: 70, align: "center" },
+        { text: "Frequência", width: 90, align: "center" },
+        { text: "Situação", width: 130, align: "center" }
       ],
-      { size: 8 }
+      enrollment.subjects.map((subject) => [
+        { text: subject.name, bold: true },
+        { text: formatGrade(subject.average), align: "center" },
+        { text: subject.attendanceRate === null ? "-" : formatPercent(subject.attendanceRate), align: "center" },
+        { text: subject.situation, color: statusColor(subject.situation), bold: true, align: "center" }
+      ])
     );
-
-    for (const subject of enrollment.subjects) {
-      const periods = subject.periodGrades.map((period) => `${period.periodName}: ${formatGrade(period.average)}`).join(" | ");
-      pdf.row(
-        [
-          { text: subject.name, width: 160 },
-          { text: periods || "-", width: 155 },
-          { text: formatGrade(subject.average), width: 60 },
-          { text: subject.attendanceRate === null ? "-" : formatPercent(subject.attendanceRate), width: 75 },
-          { text: subject.situation, width: 70 }
-        ],
-        { size: 8 }
-      );
-    }
-
-    pdf.gap(12);
   }
 
   return {
@@ -151,63 +246,55 @@ export function buildReportCardPdf(input: {
   selectedPeriodLabel: string;
 }) {
   const pdf = new SimplePdf();
-  addDocumentHeader(pdf, "Boletim escolar", input.schoolName, input.studentName);
+  drawDocumentFrame(pdf, input.schoolName);
+  drawTitle(pdf, "Boletim Escolar");
+  drawMetadata(pdf, input.studentName);
 
-  pdf.section("Resumo");
-  pdf.row(
-    [
-      { text: "Ano letivo", width: 90, bold: true },
-      { text: String(input.enrollment.academicYear.year), width: 85 },
-      { text: "Período", width: 70, bold: true },
-      { text: input.selectedPeriodLabel, width: 140 },
-      { text: "Turma", width: 55, bold: true },
-      { text: input.enrollment.classroom.name, width: 80 }
-    ],
-    { size: 9 }
-  );
-  pdf.row(
-    [
-      { text: "Média geral", width: 90, bold: true },
-      { text: input.summary.averageGrade.toFixed(1), width: 85 },
-      { text: "Frequência", width: 70, bold: true },
-      { text: formatPercent(input.summary.attendanceRate), width: 140 },
-      { text: "Situação", width: 55, bold: true },
-      { text: input.summary.situation, width: 80 }
-    ],
-    { size: 9 }
-  );
+  drawSectionTitle(pdf, "Identificação");
+  drawInfoGrid(pdf, [
+    { label: "Aluno(a)", value: input.studentName },
+    { label: "Matrícula", value: input.enrollment.registration },
+    { label: "Ano letivo", value: String(input.enrollment.academicYear.year) },
+    { label: "Turma", value: input.enrollment.classroom.name },
+    { label: "Turno", value: shiftLabel(input.enrollment.classroom.shift) },
+    { label: "Período", value: input.selectedPeriodLabel }
+  ]);
 
-  pdf.section("Notas por disciplina");
-  pdf.row(
-    [
-      { text: "Disciplina", width: 130, bold: true },
-      ...input.periods.map((period) => ({ text: period.name, width: Math.floor(200 / Math.max(input.periods.length, 1)), bold: true })),
-      { text: "Média", width: 52, bold: true },
-      { text: "Frequência", width: 62, bold: true },
-      { text: "Situação", width: 55, bold: true }
-    ],
-    { size: 8 }
-  );
+  drawSectionTitle(pdf, "Resumo do desempenho");
+  drawSummaryGrid(pdf, [
+    { label: "Média geral", value: input.summary.averageGrade.toFixed(1) },
+    { label: "Frequência geral", value: formatPercent(input.summary.attendanceRate) },
+    { label: "Situação", value: input.summary.situation },
+    { label: "Período", value: input.selectedPeriodLabel }
+  ]);
 
-  for (const row of input.rows) {
-    pdf.row(
-      [
-        { text: row.subject.name, width: 130 },
-        ...input.periods.map((period) => ({
-          text: formatGrade(row.values.find((item) => item.periodId === period.id)?.value),
-          width: Math.floor(200 / Math.max(input.periods.length, 1))
-        })),
-        { text: row.average.toFixed(1), width: 52 },
-        { text: formatPercent(row.attendanceRate), width: 62 },
-        { text: row.situation, width: 55 }
-      ],
-      { size: 8 }
-    );
-  }
+  drawSectionTitle(pdf, "Notas por disciplina");
+  const periodWidth = Math.floor((pdf.contentWidth - 125 - 55 - 66 - 76) / Math.max(input.periods.length, 1));
+  pdf.table(
+    [
+      { text: "Disciplina", width: 125 },
+      ...input.periods.map((period) => ({ text: period.name, width: periodWidth, align: "center" as const })),
+      { text: "Média", width: 55, align: "center" },
+      { text: "Frequência", width: 66, align: "center" },
+      { text: "Situação", width: 76, align: "center" }
+    ],
+    input.rows.map((row) => [
+      { text: row.subject.name, bold: true },
+      ...input.periods.map((period) => ({
+        text: formatGrade(row.values.find((item) => item.periodId === period.id)?.value),
+        align: "center" as const
+      })),
+      { text: row.average.toFixed(1), bold: true, align: "center" },
+      { text: formatPercent(row.attendanceRate), align: "center" },
+      { text: row.situation, color: statusColor(row.situation), bold: true, align: "center" }
+    ])
+  );
 
   if (!input.rows.length) {
-    pdf.text("Nenhuma nota encontrada para o período selecionado.", undefined, { size: 9, color: "#5b6b82" });
+    drawNote(pdf, "Notas por disciplina", "Nenhuma nota encontrada para o período selecionado.");
   }
+
+  drawNote(pdf, "Observação", "As médias apresentadas são calculadas conforme as regras acadêmicas configuradas no sistema.");
 
   return {
     filename: documentFilename("boletim", input.studentName),
@@ -222,35 +309,33 @@ export function buildEnrollmentDeclarationPdf(input: {
   guardianName?: string | null;
 }) {
   const pdf = new SimplePdf();
-  addDocumentHeader(pdf, "Declaração de matrícula", input.schoolName, input.studentName);
+  drawDocumentFrame(pdf, input.schoolName);
+  drawTitle(pdf, "Declaração de Matrícula");
+  drawMetadata(pdf, input.studentName);
 
-  pdf.section("Declaração");
+  drawSectionTitle(pdf, "Declaração");
   pdf.text(
-    `Declaramos, para os devidos fins, que ${input.studentName} encontra-se matriculado(a) no ano letivo de ${input.enrollment.academicYear.year}, na turma ${input.enrollment.classroom.name}, ${input.enrollment.classroom.gradeLevel}, turno ${shiftLabel(input.enrollment.classroom.shift)}.`,
-    undefined,
-    { size: 11, color: "#0b2d63" }
+    `Declaramos, para os devidos fins, que ${input.studentName} possui matrícula ativa nesta instituição de ensino, no ano letivo de ${input.enrollment.academicYear.year}, na turma ${input.enrollment.classroom.name}, turno ${shiftLabel(input.enrollment.classroom.shift)}.`,
+    pdf.margin,
+    { size: 11, color: pdfTheme.navyText }
   );
-  pdf.gap(6);
-  pdf.row(
-    [
-      { text: "Matrícula", width: 100, bold: true },
-      { text: input.enrollment.registration, width: 145 },
-      { text: "Data de entrada", width: 105, bold: true },
-      { text: formatDate(input.enrollment.enrolledAt), width: 170 }
-    ],
-    { size: 9 }
-  );
-  pdf.row(
-    [
-      { text: "Status", width: 100, bold: true },
-      { text: enrollmentStatusLabel(input.enrollment.status), width: 145 },
-      { text: "Responsável", width: 105, bold: true },
-      { text: input.guardianName ?? "-", width: 170 }
-    ],
-    { size: 9 }
-  );
-  pdf.gap(28);
-  pdf.text("Este documento foi gerado eletronicamente para consulta escolar.", undefined, { size: 9, color: "#5b6b82" });
+  pdf.moveDown(12);
+
+  drawSectionTitle(pdf, "Informações da matrícula");
+  drawInfoGrid(pdf, [
+    { label: "Matrícula", value: input.enrollment.registration },
+    { label: "Data de entrada", value: formatDate(input.enrollment.enrolledAt) },
+    { label: "Status", value: enrollmentStatusLabel(input.enrollment.status) },
+    { label: "Responsável", value: input.guardianName },
+    { label: "Turma", value: input.enrollment.classroom.name },
+    { label: "Ano letivo", value: String(input.enrollment.academicYear.year) },
+    { label: "Turno", value: shiftLabel(input.enrollment.classroom.shift) }
+  ]);
+
+  pdf.moveDown(18);
+  pdf.lineAt(pdf.margin, pdf.cursorY, pdf.margin + 210, pdf.cursorY, pdfTheme.navy, 0.8);
+  pdf.moveDown(14);
+  pdf.text("Assinatura / Secretaria Escolar", pdf.margin + 34, { size: 8, color: pdfTheme.muted });
 
   return {
     filename: documentFilename("declaracao-matricula", input.studentName),
