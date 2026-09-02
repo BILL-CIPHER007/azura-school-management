@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import type { Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { getDemoPassword, schoolConfig } from "@/config/school";
+import { checkActiveStudentLimit, formatSchoolPlan } from "@/lib/commercial-plans";
 import { prisma } from "@/lib/prisma";
 
 export type EnrollmentRegistrationErrorCode =
@@ -12,7 +13,8 @@ export type EnrollmentRegistrationErrorCode =
   | "responsavel-obrigatorio"
   | "responsavel-conflito"
   | "email-responsavel"
-  | "matricula-duplicada";
+  | "matricula-duplicada"
+  | "limite-alunos-ativos";
 
 export class EnrollmentRegistrationError extends Error {
   constructor(public code: EnrollmentRegistrationErrorCode, message: string) {
@@ -71,6 +73,38 @@ export async function createEnrollmentRegistration(input: EnrollmentRegistration
   return prisma.$transaction((tx) => createEnrollmentRegistrationInTransaction(tx, input));
 }
 
+export async function getActiveStudentCapacity(tx: TransactionClient, schoolId: string, incomingStudents = 1) {
+  const [school, activeStudentGroups] = await Promise.all([
+    tx.school.findFirstOrThrow({
+      where: { id: schoolId },
+      select: { plan: true }
+    }),
+    tx.enrollment.groupBy({
+      by: ["studentId"],
+      where: { schoolId, status: "ACTIVE" }
+    })
+  ]);
+
+  return {
+    plan: school.plan,
+    ...checkActiveStudentLimit(school.plan, activeStudentGroups.length, incomingStudents)
+  };
+}
+
+export async function assertActiveStudentCapacity(tx: TransactionClient, schoolId: string, incomingStudents = 1) {
+  const capacity = await getActiveStudentCapacity(tx, schoolId, incomingStudents);
+
+  if (!capacity.allowed) {
+    throw new EnrollmentRegistrationError(
+      "limite-alunos-ativos",
+      `O plano ${formatSchoolPlan(capacity.plan)} permite até ${capacity.maxActiveStudents} alunos ativos. ` +
+        `Hoje há ${capacity.currentActiveStudents} aluno(s) ativo(s) e esta operação excederia o limite em ${capacity.exceededBy}.`
+    );
+  }
+
+  return capacity;
+}
+
 export async function createEnrollmentRegistrationInTransaction(tx: TransactionClient, input: EnrollmentRegistrationInput) {
   const studentCpf = optionalText(input.studentCpf);
   const studentEmail = normalizeEmail(input.studentEmail);
@@ -89,6 +123,8 @@ export async function createEnrollmentRegistrationInTransaction(tx: TransactionC
   if (classroom.academicYearId !== academicYear.id) {
     throw new EnrollmentRegistrationError("turma-ano", "A turma selecionada não pertence ao ano letivo informado.");
   }
+
+  await assertActiveStudentCapacity(tx, input.schoolId, 1);
 
   const registration = optionalText(input.registration) ?? generatedRegistration(academicYear.year);
   const existingRegistration = await tx.enrollment.findUnique({

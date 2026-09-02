@@ -13,7 +13,9 @@ const errorMessages: Record<string, string> = {
   "turma-ano": "A turma selecionada não pertence ao ano letivo informado.",
   "matricula-ativa": "Este aluno já possui matrícula ativa neste ano letivo.",
   "aluno-existente": "Já existe um aluno cadastrado com este CPF ou e-mail. Revise os dados antes de continuar.",
-  "email-aluno": "Este e-mail já está vinculado a outro usuário da escola."
+  "email-aluno": "Este e-mail já está vinculado a outro usuário da escola.",
+  "limite-alunos-ativos":
+    "O limite de alunos ativos do plano atual foi atingido. Revise matrículas ativas ou altere o plano antes de cadastrar outro aluno."
 };
 
 export default async function NewEnrollmentPage({

@@ -24,6 +24,7 @@ import {
   createEnrollmentRegistration,
   createEnrollmentRegistrationInTransaction,
   EnrollmentRegistrationError,
+  getActiveStudentCapacity,
   optionalText
 } from "@/services/enrollment-registration";
 
@@ -522,6 +523,19 @@ export async function confirmStudentCsvImport(
     return {
       ...preview,
       message: "Os dados mudaram ou ainda possuem erros. Valide o CSV novamente antes de confirmar."
+    };
+  }
+
+  const capacity = await prisma.$transaction((tx) => getActiveStudentCapacity(tx, session.schoolId, preview.validRows));
+  if (!capacity.allowed) {
+    return {
+      ...preview,
+      status: "error",
+      payload: undefined,
+      message:
+        `O plano atual permite até ${capacity.maxActiveStudents} alunos ativos. ` +
+        `A escola possui ${capacity.currentActiveStudents} aluno(s) ativo(s) e o arquivo adicionaria ${capacity.incomingStudents}. ` +
+        `Reduza ${capacity.exceededBy} linha(s) ou altere o plano antes de confirmar.`
     };
   }
 

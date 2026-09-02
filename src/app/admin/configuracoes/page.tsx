@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { schoolConfig } from "@/config/school";
 import { getAcademicPeriodClosingState, isAcademicYearClosed } from "@/lib/academic-closing";
 import { auditActionLabel, auditEntityLabel } from "@/lib/admin-labels";
+import { formatSchoolPlan, getPlanConfig } from "@/lib/commercial-plans";
 import { requireSession } from "@/lib/auth";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { getSchoolSettings } from "@/services/school-data";
@@ -152,6 +153,9 @@ export default async function SettingsPage({
   const activeAcademicYear = settings.academicYears.find((year) => year.isActive) ?? null;
   const periodHealth = buildPeriodHealth(settings.periods);
   const feedback = settingsFeedback(query);
+  const planConfig = getPlanConfig(settings.school.plan);
+  const studentLimitUsage = Math.round((settings.activeStudentsCount / planConfig.maxActiveStudents) * 100);
+  const isNearStudentLimit = studentLimitUsage >= 90;
 
   return (
     <main className="page-shell">
@@ -203,6 +207,40 @@ export default async function SettingsPage({
           <p className="mt-4 rounded-md border border-border bg-muted/40 p-3 text-sm leading-6 text-text-secondary">
             O branding identifica o produto da instalação e pode exigir alteração de arquivo, variável de ambiente e
             novo deploy. O slug identifica a escola no banco e não deve ser editado diretamente nesta tela.
+          </p>
+        </AdminSection>
+
+        <AdminSection title="Plano atual" description="Limites comerciais ativos para esta escola.">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-md border border-border bg-muted/30 p-3">
+              <span className="text-xs font-semibold uppercase text-text-muted">Plano contratado</span>
+              <p className="mt-2 text-2xl font-semibold text-school-navy">{formatSchoolPlan(settings.school.plan)}</p>
+              <p className="mt-1 text-sm text-text-secondary">Configuração aplicada pelo sistema.</p>
+            </div>
+            <div
+              className={`rounded-md border p-3 ${
+                isNearStudentLimit ? "border-warning/30 bg-warning-soft/30" : "border-success/20 bg-success-soft/20"
+              }`}
+            >
+              <span className="text-xs font-semibold uppercase text-text-muted">Alunos ativos</span>
+              <p className="mt-2 text-2xl font-semibold text-school-navy">
+                {settings.activeStudentsCount} de {planConfig.maxActiveStudents}
+              </p>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-border">
+                <div
+                  className={`h-full rounded-full ${isNearStudentLimit ? "bg-warning" : "bg-success"}`}
+                  style={{ width: `${Math.min(studentLimitUsage, 100)}%` }}
+                />
+              </div>
+              <p className="mt-2 text-sm text-text-secondary">
+                {isNearStudentLimit
+                  ? "A escola está próxima do limite de alunos ativos do plano."
+                  : "Capacidade disponível para novas matrículas ativas."}
+              </p>
+            </div>
+          </div>
+          <p className="mt-4 rounded-md border border-border bg-muted/40 p-3 text-sm leading-6 text-text-secondary">
+            O plano é somente leitura nesta etapa. Mudanças comerciais devem ser feitas fora do portal administrativo.
           </p>
         </AdminSection>
 

@@ -972,8 +972,12 @@ export async function listCalendarAdmin(schoolId: string) {
 }
 
 export async function getSchoolSettings(schoolId: string) {
-  const [school, academicYears, periods, auditLogs] = await Promise.all([
+  const [school, activeStudentGroups, academicYears, periods, auditLogs] = await Promise.all([
     prisma.school.findFirstOrThrow({ where: { id: schoolId } }),
+    prisma.enrollment.groupBy({
+      by: ["studentId"],
+      where: { schoolId, status: "ACTIVE" }
+    }),
     prisma.academicYear.findMany({
       where: { schoolId },
       include: { periods: { select: { closedAt: true } } },
@@ -992,7 +996,7 @@ export async function getSchoolSettings(schoolId: string) {
     })
   ]);
 
-  return { school, academicYears, periods, auditLogs };
+  return { school, activeStudentsCount: activeStudentGroups.length, academicYears, periods, auditLogs };
 }
 
 export async function getActiveAcademicYearLabel(schoolId: string) {
