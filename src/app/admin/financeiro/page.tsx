@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { CurrencyInput, FinancialFilters } from "./financial-admin-controls";
 import { chargeStatusLabel, chargeStatusTone, formatCurrencyBRL, getChargeDisplayStatus } from "@/lib/financial-core";
 import { requireSession } from "@/lib/auth";
 import { formatDate } from "@/lib/utils";
@@ -149,35 +150,15 @@ export default async function AdminFinancialPage({
       </section>
 
       <AdminToolbar>
-        <form className="grid gap-3 lg:grid-cols-[160px_180px_1fr_1fr_auto]">
-          <Input type="month" name="mes" defaultValue={month} aria-label="Mes de referencia" />
-          <Select name="status" defaultValue={status ?? ""} aria-label="Status">
-            {statusOptions.map((item) => (
-              <option key={item.value || "all"} value={item.value}>
-                {item.label}
-              </option>
-            ))}
-          </Select>
-          <Select name="aluno" defaultValue={query.aluno ?? ""} aria-label="Aluno">
-            <option value="">Todos os alunos</option>
-            {overview.students.map((student) => (
-              <option key={student.id} value={student.id}>
-                {studentLabel(student)}
-              </option>
-            ))}
-          </Select>
-          <Select name="responsavel" defaultValue={query.responsavel ?? ""} aria-label="Responsavel">
-            <option value="">Todos os responsaveis</option>
-            {overview.guardians.map((guardian) => (
-              <option key={guardian.id} value={guardian.id}>
-                {guardian.fullName}
-              </option>
-            ))}
-          </Select>
-          <Button type="submit" variant="secondary">
-            Filtrar
-          </Button>
-        </form>
+        <FinancialFilters
+          month={month}
+          status={status}
+          studentId={query.aluno}
+          guardianId={query.responsavel}
+          statusOptions={statusOptions}
+          students={overview.students.map((student) => ({ id: student.id, label: studentLabel(student) }))}
+          guardians={overview.guardians.map((guardian) => ({ id: guardian.id, label: guardian.fullName }))}
+        />
       </AdminToolbar>
 
       <AdminSection title="Nova cobranca" description="Crie uma cobranca interna vinculada a um aluno.">
@@ -195,7 +176,7 @@ export default async function AdminFinancialPage({
             })}
           </Select>
           <Input name="reference" placeholder="Referencia, ex.: Mensalidade 09/2026" required />
-          <Input name="amount" placeholder="Valor" inputMode="decimal" required />
+          <CurrencyInput name="amount" required />
           <Input name="dueDate" type="date" required />
           <textarea
             name="description"
@@ -266,7 +247,7 @@ export default async function AdminFinancialPage({
                               <form action={updateChargeAction} className="mt-3 grid w-72 gap-2">
                                 <input type="hidden" name="chargeId" value={charge.id} />
                                 <Input name="reference" defaultValue={charge.reference} required />
-                                <Input name="amount" defaultValue={charge.amount.toString()} inputMode="decimal" required />
+                                <CurrencyInput name="amount" defaultValue={charge.amount.toString()} required />
                                 <Input
                                   name="dueDate"
                                   type="date"
@@ -293,7 +274,7 @@ export default async function AdminFinancialPage({
                                 icon="none"
                                 variant="subtle"
                               >
-                                Marcar paga
+                                Marcar como paga
                               </ConfirmSubmitButton>
                             </form>
                           ) : null}
