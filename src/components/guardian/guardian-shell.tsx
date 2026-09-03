@@ -9,10 +9,12 @@ import type { SessionUser } from "@/lib/session";
 export function GuardianShell({
   session,
   academicYear,
+  financialEnabled = false,
   children
 }: {
   session: SessionUser;
   academicYear: number;
+  financialEnabled?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -29,7 +31,7 @@ export function GuardianShell({
           <DemoBadge className="hidden bg-white/10 text-white ring-white/20 lg:inline-flex" />
         </div>
 
-        <GuardianNav />
+        <GuardianNav financialEnabled={financialEnabled} />
 
         <form action={logout} className="relative mt-auto hidden border-t border-white/10 p-3 lg:block">
           <Button type="submit" variant="ghost" className="w-full justify-start text-white hover:bg-white/10 hover:text-white">

@@ -7,7 +7,11 @@ assert.equal(getPlanConfig("PROFISSIONAL").maxActiveStudents, 500);
 assert.equal(hasCommercialFeature("ESSENCIAL", "academicCore"), true);
 assert.equal(hasCommercialFeature("ESSENCIAL", "studentCsvImport"), true);
 assert.equal(hasCommercialFeature("ESSENCIAL", "financialModule"), false);
+assert.equal(hasCommercialFeature("ESSENCIAL", "finance"), false);
+assert.equal(hasCommercialFeature("ESSENCIAL", "billing"), false);
 assert.equal(hasCommercialFeature("PROFISSIONAL", "financialModule"), true);
+assert.equal(hasCommercialFeature("PROFISSIONAL", "finance"), true);
+assert.equal(hasCommercialFeature("PROFISSIONAL", "billing"), true);
 
 assert.deepEqual(checkActiveStudentLimit("ESSENCIAL", 199, 1), {
   allowed: true,

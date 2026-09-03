@@ -11,6 +11,7 @@ import {
   GraduationCap,
   Home,
   Megaphone,
+  ReceiptText,
   School,
   Settings,
   Users,
@@ -38,12 +39,19 @@ const adminNavigation: AdminNavItem[] = [
   { href: "/admin/configuracoes", label: "Configurações", icon: Settings }
 ];
 
-export function AdminNav() {
+export function AdminNav({ financialEnabled = false }: { financialEnabled?: boolean }) {
   const pathname = usePathname();
+  const items = financialEnabled
+    ? [
+        ...adminNavigation.slice(0, 10),
+        { href: "/admin/financeiro", label: "Financeiro", icon: ReceiptText },
+        ...adminNavigation.slice(10)
+      ]
+    : adminNavigation;
 
   return (
     <nav className="relative flex gap-1 overflow-x-auto px-4 pb-4 lg:flex-none lg:flex-col lg:overflow-visible lg:px-3 lg:pb-3">
-      {adminNavigation.map((item) => {
+      {items.map((item) => {
         const Icon = item.icon;
         const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
         return (

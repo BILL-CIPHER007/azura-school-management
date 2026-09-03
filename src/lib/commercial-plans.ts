@@ -1,6 +1,6 @@
 import type { SchoolPlan } from "@prisma/client";
 
-export type CommercialFeature = "academicCore" | "studentCsvImport" | "financialModule";
+export type CommercialFeature = "academicCore" | "studentCsvImport" | "financialModule" | "finance" | "billing";
 
 export type PlanConfig = {
   label: string;
@@ -23,7 +23,9 @@ export const COMMERCIAL_PLAN_CONFIG: Record<SchoolPlan, PlanConfig> = {
     features: {
       academicCore: true,
       studentCsvImport: true,
-      financialModule: false
+      financialModule: false,
+      finance: false,
+      billing: false
     }
   },
   PROFISSIONAL: {
@@ -32,7 +34,9 @@ export const COMMERCIAL_PLAN_CONFIG: Record<SchoolPlan, PlanConfig> = {
     features: {
       academicCore: true,
       studentCsvImport: true,
-      financialModule: true
+      financialModule: true,
+      finance: true,
+      billing: true
     }
   }
 };

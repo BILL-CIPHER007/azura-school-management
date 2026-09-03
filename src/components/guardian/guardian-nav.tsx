@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { CalendarDays, ClipboardCheck, FileClock, Home, Megaphone, NotebookTabs } from "lucide-react";
+import { CalendarDays, ClipboardCheck, FileClock, Home, Megaphone, NotebookTabs, ReceiptText } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
@@ -14,14 +14,17 @@ const items = [
   { href: "/responsavel/comunicados", label: "Comunicados", icon: Megaphone }
 ];
 
-export function GuardianNav() {
+export function GuardianNav({ financialEnabled = false }: { financialEnabled?: boolean }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const studentId = searchParams.get("studentId");
+  const navigationItems = financialEnabled
+    ? [...items.slice(0, 4), { href: "/responsavel/financeiro", label: "Financeiro", icon: ReceiptText }, ...items.slice(4)]
+    : items;
 
   return (
     <nav className="relative flex gap-1 overflow-x-auto px-4 pb-4 lg:flex-1 lg:flex-col lg:overflow-y-auto lg:px-3 lg:pb-4">
-      {items.map((item) => {
+      {navigationItems.map((item) => {
         const Icon = item.icon;
         const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
         const href = studentId ? `${item.href}?studentId=${encodeURIComponent(studentId)}` : item.href;

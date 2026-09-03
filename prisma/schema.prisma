@@ -24,6 +24,12 @@ enum SchoolPlan {
   PROFISSIONAL
 }
 
+enum ChargeStatus {
+  PENDING
+  PAID
+  CANCELED
+}
+
 enum EnrollmentStatus {
   ACTIVE
   TRANSFERRED
@@ -82,6 +88,7 @@ model School {
   announcements Announcement[]
   events        CalendarEvent[]
   diaryEntries  ClassDiaryEntry[]
+  charges       Charge[]
   auditLogs     AuditLog[]
 }
 
@@ -155,6 +162,7 @@ model Student {
   user        User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
   guardians   GuardianStudent[]
   enrollments Enrollment[]
+  charges     Charge[]
 
   @@index([schoolId, fullName])
 }
@@ -173,6 +181,7 @@ model Guardian {
   school    School            @relation(fields: [schoolId], references: [id], onDelete: Cascade)
   user      User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
   students  GuardianStudent[]
+  charges   Charge[]
 
   @@index([schoolId, fullName])
 }
@@ -259,9 +268,36 @@ model Enrollment {
   academicYear   AcademicYear     @relation(fields: [academicYearId], references: [id], onDelete: Restrict)
   grades         Grade[]
   attendances    Attendance[]
+  charges        Charge[]
 
   @@unique([schoolId, registration])
   @@index([schoolId, status])
+}
+
+model Charge {
+  id           String       @id @default(cuid())
+  schoolId     String
+  studentId    String
+  guardianId   String?
+  enrollmentId String?
+  reference    String
+  description  String?
+  amount       Decimal      @db.Decimal(10, 2)
+  dueDate      DateTime
+  status       ChargeStatus @default(PENDING)
+  paidAt       DateTime?
+  canceledAt   DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  school       School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  student      Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  guardian     Guardian?    @relation(fields: [guardianId], references: [id], onDelete: SetNull)
+  enrollment   Enrollment?  @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+
+  @@index([schoolId, status, dueDate])
+  @@index([schoolId, studentId])
+  @@index([schoolId, guardianId])
+  @@index([schoolId, dueDate])
 }
 
 model TeacherSubject {

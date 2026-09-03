@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ReceiptText } from "lucide-react";
 import { AdminMetric, AdminPageHeader, AdminSection, DefinitionList } from "@/components/admin/admin-ui";
 import { ProgressBar } from "@/components/dashboard";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +14,9 @@ import {
 } from "@/lib/admin-labels";
 import { requireSession } from "@/lib/auth";
 import { isPassingGrade } from "@/lib/academic-rules";
+import { formatCurrencyBRL } from "@/lib/financial-core";
 import { formatDate, formatPercent } from "@/lib/utils";
+import { getStudentFinancialSummary } from "@/services/financial";
 import { getStudentDetails, summarizeEnrollment } from "@/services/school-data";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +27,7 @@ export default async function StudentDetailsPage({ params }: { params: Promise<{
   const student = await getStudentDetails(session.schoolId, id);
   if (!student) notFound();
 
+  const financialSummary = await getStudentFinancialSummary(session.schoolId, id);
   const currentEnrollment = student.enrollments[0] ?? null;
   const summary = summarizeEnrollment(currentEnrollment);
 
@@ -57,7 +61,7 @@ export default async function StudentDetailsPage({ params }: { params: Promise<{
         }
       />
 
-      <section className="grid gap-3 md:grid-cols-4">
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         <AdminMetric label="Matrícula" value={currentEnrollment?.registration ?? "-"} detail={currentEnrollment?.classroom.name ?? "Sem turma"} />
         <AdminMetric label="Média geral" value={summary.averageGrade.toFixed(1)} detail={summary.situation} tone={academicSituationTone(summary.situation)} />
         <AdminMetric label="Frequência" value={formatPercent(summary.attendanceRate)} detail={`${summary.absences} faltas`} />
@@ -67,6 +71,15 @@ export default async function StudentDetailsPage({ params }: { params: Promise<{
           detail={currentEnrollment?.academicYear.year.toString() ?? "Sem matrícula"}
           tone={enrollmentStatusTone(currentEnrollment?.status)}
         />
+        {financialSummary ? (
+          <AdminMetric
+            label="Financeiro"
+            value={financialSummary.count}
+            detail={`${formatCurrencyBRL(financialSummary.openAmount)} em aberto`}
+            icon={ReceiptText}
+            tone={financialSummary.openAmount > 0 ? "warning" : "success"}
+          />
+        ) : null}
       </section>
 
       <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
