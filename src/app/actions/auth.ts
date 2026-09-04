@@ -14,13 +14,24 @@ export async function loginDemo(formData: FormData) {
   const role = formData.get("role") as UserRole | null;
   if (!role || !schoolConfig.demo.users[role]) redirect("/?erro=perfil");
 
-  const user = await prisma.user.findFirst({
+  const configuredUser = await prisma.user.findFirst({
     where: {
       email: schoolConfig.demo.users[role],
       role,
-      status: "ACTIVE"
+      status: "ACTIVE",
+      school: { slug: schoolConfig.demo.schoolSlug }
     }
   });
+  const user =
+    configuredUser ??
+    (await prisma.user.findFirst({
+      where: {
+        role,
+        status: "ACTIVE",
+        school: { slug: schoolConfig.demo.schoolSlug }
+      },
+      orderBy: { createdAt: "asc" }
+    }));
 
   if (!user) redirect("/?erro=seed");
 

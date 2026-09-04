@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { updateGuardian } from "@/app/actions/academic";
 import { AdminMetric, AdminPageHeader, AdminSection, DefinitionList } from "@/components/admin/admin-ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Modal } from "@/components/ui/modal";
 import {
   enrollmentStatusLabel,
   enrollmentStatusTone,
@@ -16,12 +19,21 @@ import { getGuardianDetails } from "@/services/school-data";
 
 export const dynamic = "force-dynamic";
 
+const errorMessages: Record<string, string> = {
+  validacao: "Revise os dados informados.",
+  cpf: "Informe um CPF válido com 11 dígitos ou deixe o campo vazio.",
+  "cpf-duplicado": "Já existe outro responsável com este CPF nesta escola.",
+  "email-duplicado": "Já existe outro responsável com este e-mail nesta escola.",
+  "email-usuario": "Este e-mail já está vinculado a outro usuário da escola.",
+  responsavel: "Responsável não encontrado nesta escola."
+};
+
 export default async function GuardianDetailsPage({
   params,
   searchParams
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ existente?: string; sucesso?: string }>;
+  searchParams: Promise<{ editar?: string; erro?: string; existente?: string; sucesso?: string }>;
 }) {
   const session = await requireSession(["ADMIN"]);
   const { id } = await params;
@@ -40,9 +52,14 @@ export default async function GuardianDetailsPage({
           { label: guardian.fullName }
         ]}
         action={
-          <Button asChild variant="outline">
-            <Link href="/admin/responsaveis">Voltar</Link>
-          </Button>
+          <>
+            <Button asChild>
+              <Link href={`/admin/responsaveis/${guardian.id}?editar=1`}>Editar responsável</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/admin/responsaveis">Voltar</Link>
+            </Button>
+          </>
         }
       />
 
@@ -55,6 +72,18 @@ export default async function GuardianDetailsPage({
       {query.sucesso === "cadastro" ? (
         <div className="rounded-lg border border-success/20 bg-success-soft px-4 py-3 text-sm text-success">
           Responsável cadastrado com sucesso.
+        </div>
+      ) : null}
+
+      {query.sucesso === "editado" ? (
+        <div className="rounded-lg border border-success/20 bg-success-soft px-4 py-3 text-sm text-success">
+          Responsável atualizado com sucesso.
+        </div>
+      ) : null}
+
+      {query.erro ? (
+        <div className="rounded-lg border border-warning/20 bg-warning-soft px-4 py-3 text-sm text-warning">
+          {errorMessages[query.erro] ?? "Não foi possível atualizar o responsável."}
         </div>
       ) : null}
 
@@ -71,6 +100,7 @@ export default async function GuardianDetailsPage({
       <AdminSection title="Dados de contato">
         <DefinitionList
           items={[
+            { label: "Nome", value: guardian.fullName },
             { label: "CPF", value: guardian.cpf },
             { label: "E-mail", value: guardian.email },
             { label: "Telefone", value: guardian.phone },
@@ -109,6 +139,29 @@ export default async function GuardianDetailsPage({
           })}
         </div>
       </AdminSection>
+
+      <Modal
+        open={query.editar === "1"}
+        title="Editar responsável"
+        description="Atualize os dados cadastrais sem alterar alunos vinculados ou parentesco."
+      >
+        <form action={updateGuardian} className="grid gap-4">
+          <input type="hidden" name="guardianId" value={guardian.id} />
+          <Input name="guardianName" defaultValue={guardian.fullName} placeholder="Nome completo" required />
+          <Input name="guardianCpf" defaultValue={guardian.cpf ?? ""} placeholder="CPF" />
+          <Input name="guardianPhone" defaultValue={guardian.phone ?? ""} placeholder="Telefone" />
+          <Input name="guardianEmail" type="email" defaultValue={guardian.email ?? ""} placeholder="E-mail" />
+          <div className="rounded-md border border-border bg-surface-muted px-3 py-2 text-sm text-text-secondary">
+            Parentesco e alunos vinculados permanecem inalterados nesta edição.
+          </div>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button asChild variant="outline">
+              <Link href={`/admin/responsaveis/${guardian.id}`}>Cancelar</Link>
+            </Button>
+            <Button type="submit">Salvar alterações</Button>
+          </div>
+        </form>
+      </Modal>
     </main>
   );
 }

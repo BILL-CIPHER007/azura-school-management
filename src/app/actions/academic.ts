@@ -27,6 +27,7 @@ import {
   getActiveStudentCapacity,
   optionalText
 } from "@/services/enrollment-registration";
+import { GuardianUpdateError, updateGuardianRecord } from "@/services/guardian-management";
 
 const gradeValue = z.coerce.number().min(0).max(10);
 
@@ -53,6 +54,14 @@ const guardianSchema = z.object({
   guardianName: z.string().min(3),
   guardianCpf: z.string().optional(),
   relation: z.string().min(2),
+  guardianPhone: z.string().optional(),
+  guardianEmail: z.string().email().optional().or(z.literal(""))
+});
+
+const guardianUpdateSchema = z.object({
+  guardianId: z.string().min(1),
+  guardianName: z.string().trim().min(3),
+  guardianCpf: z.string().optional(),
   guardianPhone: z.string().optional(),
   guardianEmail: z.string().email().optional().or(z.literal(""))
 });
@@ -697,6 +706,39 @@ export async function createGuardian(formData: FormData) {
 
   revalidatePath("/admin/responsaveis");
   redirect(`/admin/responsaveis/${result.guardianId}?sucesso=cadastro`);
+}
+
+export async function updateGuardian(formData: FormData) {
+  const session = await requireSession(["ADMIN"]);
+  const parsed = guardianUpdateSchema.safeParse(Object.fromEntries(formData));
+
+  if (!parsed.success) {
+    redirectWithStatus("/admin/responsaveis", { erro: "validacao" });
+  }
+
+  const guardianId = parsed.data.guardianId;
+  const returnTo = `/admin/responsaveis/${guardianId}`;
+
+  try {
+    await updateGuardianRecord({
+      schoolId: session.schoolId,
+      actorUserId: session.id,
+      guardianId,
+      guardianName: parsed.data.guardianName,
+      guardianCpf: parsed.data.guardianCpf,
+      guardianPhone: parsed.data.guardianPhone,
+      guardianEmail: parsed.data.guardianEmail
+    });
+  } catch (error) {
+    if (error instanceof GuardianUpdateError) {
+      redirectWithStatus(error.code === "responsavel" ? "/admin/responsaveis" : returnTo, { erro: error.code });
+    }
+    throw error;
+  }
+
+  revalidatePath("/admin/responsaveis");
+  revalidatePath(returnTo);
+  redirectWithStatus(returnTo, { sucesso: "editado" });
 }
 
 export async function createTeacherAssignment(formData: FormData) {
