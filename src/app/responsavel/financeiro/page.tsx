@@ -1,9 +1,17 @@
+import Image from "next/image";
 import { redirect } from "next/navigation";
 import { CalendarClock, CheckCircle2, CircleDollarSign, ReceiptText } from "lucide-react";
 import { StudentSwitcher } from "@/components/guardian/student-switcher";
 import { GuardianEmptyState, GuardianMetric, GuardianPageHeader, GuardianSection } from "@/components/guardian/guardian-ui";
 import { Badge } from "@/components/ui/badge";
-import { chargeStatusLabel, chargeStatusTone, formatCurrencyBRL, getChargeDisplayStatus } from "@/lib/financial-core";
+import {
+  billingTypeLabel,
+  chargeStatusLabel,
+  chargeStatusTone,
+  formatCurrencyBRL,
+  getChargeDisplayStatus,
+  paymentProviderLabel
+} from "@/lib/financial-core";
 import { requireSession } from "@/lib/auth";
 import { formatDate } from "@/lib/utils";
 import { FinancialError, getGuardianFinancialPortal } from "@/services/financial";
@@ -72,6 +80,7 @@ export default async function GuardianFinancialPage({
           <div className="grid gap-3">
             {portal.charges.map((charge) => {
               const displayStatus = getChargeDisplayStatus(charge.status, charge.dueDate);
+              const pixInstruction = portal.pixInstructions[charge.id];
               return (
                 <article key={charge.id} className="rounded-lg border border-border bg-surface-muted/60 p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -90,9 +99,51 @@ export default async function GuardianFinancialPage({
                           {charge.enrollment.classroom.name} - Ano letivo {charge.enrollment.academicYear.year}
                         </p>
                       ) : null}
+                      {charge.provider ? (
+                        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-text-muted">
+                          <Badge variant="info">{paymentProviderLabel(charge.provider)}</Badge>
+                          <span>{billingTypeLabel(charge.billingType)}</span>
+                          {charge.externalStatus ? <span>Status externo: {charge.externalStatus}</span> : null}
+                        </div>
+                      ) : null}
                     </div>
                     <strong className="text-2xl text-school-navy">{formatCurrencyBRL(charge.amount)}</strong>
                   </div>
+                  {charge.invoiceUrl ? (
+                    <div className="mt-4 rounded-md border border-border bg-surface p-3">
+                      <p className="text-sm font-semibold text-school-navy">Fatura oficial</p>
+                      <a href={charge.invoiceUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block text-sm font-semibold text-school-primary hover:underline">
+                        Abrir fatura de pagamento
+                      </a>
+                    </div>
+                  ) : null}
+                  {pixInstruction?.pix ? (
+                    <div className="mt-4 grid gap-4 rounded-md border border-school-blue-100 bg-school-primary-soft/50 p-4 md:grid-cols-[160px_1fr]">
+                      <Image
+                        src={`data:image/png;base64,${pixInstruction.pix.encodedImage}`}
+                        alt="QR Code Pix"
+                        width={160}
+                        height={160}
+                        unoptimized
+                        className="h-40 w-40 rounded-md border border-border bg-white object-contain p-2"
+                      />
+                      <div className="min-w-0">
+                        <p className="font-semibold text-school-navy">Pix Copia e Cola</p>
+                        {pixInstruction.pix.expirationDate ? (
+                          <p className="mt-1 text-xs text-text-muted">Expira em {formatDate(new Date(pixInstruction.pix.expirationDate))}</p>
+                        ) : null}
+                        <textarea
+                          readOnly
+                          value={pixInstruction.pix.payload}
+                          className="mt-3 min-h-24 w-full rounded-md border border-input bg-surface px-3 py-2 text-xs text-text-secondary shadow-sm"
+                        />
+                      </div>
+                    </div>
+                  ) : pixInstruction?.error ? (
+                    <div className="mt-4 rounded-md border border-warning/20 bg-warning-soft p-3 text-sm text-warning">
+                      {pixInstruction.error}
+                    </div>
+                  ) : null}
                 </article>
               );
             })}

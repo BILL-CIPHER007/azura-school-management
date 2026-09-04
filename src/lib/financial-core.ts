@@ -1,4 +1,4 @@
-import type { ChargeStatus } from "@prisma/client";
+import type { ChargeStatus, ExternalBillingType, PaymentProvider } from "@prisma/client";
 
 export type ChargeDisplayStatus = ChargeStatus | "OVERDUE";
 
@@ -70,7 +70,8 @@ export function chargeStatusLabel(status: ChargeDisplayStatus) {
     PENDING: "Pendente",
     PAID: "Pago",
     OVERDUE: "Vencido",
-    CANCELED: "Cancelado"
+    CANCELED: "Cancelado",
+    REFUNDED: "Reembolsado"
   };
   return labels[status];
 }
@@ -80,7 +81,23 @@ export function chargeStatusTone(status: ChargeDisplayStatus) {
     PENDING: "warning",
     PAID: "success",
     OVERDUE: "danger",
-    CANCELED: "neutral"
+    CANCELED: "neutral",
+    REFUNDED: "neutral"
   };
   return tones[status];
+}
+
+export function billingTypeLabel(value: ExternalBillingType | null | undefined) {
+  const labels: Record<ExternalBillingType, string> = {
+    PIX: "Pix",
+    BOLETO: "Boleto"
+  };
+  return value ? labels[value] : "Sem gateway";
+}
+
+export function paymentProviderLabel(value: PaymentProvider | null | undefined) {
+  const labels: Record<PaymentProvider, string> = {
+    ASAAS: "Asaas Sandbox"
+  };
+  return value ? labels[value] : "Interno";
 }

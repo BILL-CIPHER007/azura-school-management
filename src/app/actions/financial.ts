@@ -8,6 +8,7 @@ import {
   cancelCharge,
   createCharge,
   FinancialError,
+  generateExternalPayment,
   markChargePaid,
   updateCharge
 } from "@/services/financial";
@@ -23,6 +24,11 @@ const createChargeSchema = z.object({
 
 const updateChargeSchema = createChargeSchema.omit({ studentId: true, enrollmentId: true }).extend({
   chargeId: z.string().min(1)
+});
+
+const externalPaymentSchema = z.object({
+  chargeId: z.string().min(1),
+  billingType: z.enum(["PIX", "BOLETO"])
 });
 
 function redirectWithStatus(path: string, params: Record<string, string>): never {
@@ -98,6 +104,23 @@ export async function cancelChargeAction(formData: FormData) {
     await cancelCharge(session.schoolId, session.id, chargeId);
     revalidateFinancialPaths();
     redirectWithStatus("/admin/financeiro", { sucesso: "cancelada" });
+  } catch (error) {
+    redirectWithStatus("/admin/financeiro", { erro: financialErrorCode(error) });
+  }
+}
+
+export async function generateExternalPaymentAction(formData: FormData) {
+  const session = await requireSession(["ADMIN"]);
+  const parsed = externalPaymentSchema.safeParse(Object.fromEntries(formData));
+
+  if (!parsed.success) {
+    redirectWithStatus("/admin/financeiro", { erro: "validacao" });
+  }
+
+  try {
+    await generateExternalPayment(session.schoolId, session.id, parsed.data.chargeId, parsed.data.billingType);
+    revalidateFinancialPaths();
+    redirectWithStatus("/admin/financeiro", { sucesso: parsed.data.billingType === "PIX" ? "pix" : "boleto" });
   } catch (error) {
     redirectWithStatus("/admin/financeiro", { erro: financialErrorCode(error) });
   }

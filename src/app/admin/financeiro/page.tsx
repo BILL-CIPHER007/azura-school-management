@@ -4,6 +4,7 @@ import { CalendarClock, CheckCircle2, CircleDollarSign, ReceiptText } from "luci
 import {
   cancelChargeAction,
   createChargeAction,
+  generateExternalPaymentAction,
   markChargePaidAction,
   updateChargeAction
 } from "@/app/actions/financial";
@@ -14,7 +15,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { CurrencyInput, FinancialFilters } from "./financial-admin-controls";
-import { chargeStatusLabel, chargeStatusTone, formatCurrencyBRL, getChargeDisplayStatus } from "@/lib/financial-core";
+import {
+  billingTypeLabel,
+  chargeStatusLabel,
+  chargeStatusTone,
+  formatCurrencyBRL,
+  getChargeDisplayStatus,
+  paymentProviderLabel
+} from "@/lib/financial-core";
 import { requireSession } from "@/lib/auth";
 import { formatDate } from "@/lib/utils";
 import {
@@ -30,14 +38,17 @@ const statusOptions: Array<{ value: FinancialFilterStatus | ""; label: string }>
   { value: "PENDING", label: "Pendentes" },
   { value: "OVERDUE", label: "Vencidas" },
   { value: "PAID", label: "Pagas" },
-  { value: "CANCELED", label: "Canceladas" }
+  { value: "CANCELED", label: "Canceladas" },
+  { value: "REFUNDED", label: "Reembolsadas" }
 ];
 
 const successMessages: Record<string, string> = {
   criada: "Cobranca criada com sucesso.",
   editada: "Cobranca atualizada com sucesso.",
   paga: "Pagamento manual registrado.",
-  cancelada: "Cobranca cancelada."
+  cancelada: "Cobranca cancelada.",
+  pix: "Cobranca Pix gerada no Asaas Sandbox.",
+  boleto: "Boleto gerado no Asaas Sandbox."
 };
 
 const errorMessages: Record<string, string> = {
@@ -48,7 +59,10 @@ const errorMessages: Record<string, string> = {
   valor: "Informe um valor valido maior que zero.",
   data: "Informe uma data de vencimento valida.",
   status: "Esta cobranca nao permite essa acao.",
-  cobranca: "Cobranca nao encontrada."
+  cobranca: "Cobranca nao encontrada.",
+  responsavel: "Informe um responsavel pagador para esta cobranca.",
+  documento: "Responsavel sem CPF/CNPJ valido para gerar cobranca externa.",
+  asaas: "Nao foi possivel concluir a integracao com o Asaas Sandbox."
 };
 
 function currentMonthValue() {
@@ -105,7 +119,7 @@ export default async function AdminFinancialPage({
     <main className="page-shell">
       <AdminPageHeader
         title="Financeiro"
-        description="Controle interno de cobrancas escolares, sem integracao de pagamento nesta etapa."
+        description="Controle de cobrancas escolares com emissao opcional via Asaas Sandbox."
         breadcrumbs={[
           { label: "Admin", href: "/admin/dashboard" },
           { label: "Financeiro" }
@@ -207,7 +221,9 @@ export default async function AdminFinancialPage({
               <tbody>
                 {overview.charges.map((charge) => {
                   const displayStatus = getChargeDisplayStatus(charge.status, charge.dueDate);
-                  const editable = charge.status === "PENDING";
+                  const hasExternalPayment = Boolean(charge.externalPaymentId);
+                  const editable = charge.status === "PENDING" && !hasExternalPayment;
+                  const canGenerateExternalPayment = charge.status === "PENDING" && !hasExternalPayment && charge.externalStatus !== "CREATING";
                   return (
                     <tr key={charge.id}>
                       <td>
@@ -228,7 +244,23 @@ export default async function AdminFinancialPage({
                         <Badge variant={chargeStatusTone(displayStatus)}>{chargeStatusLabel(displayStatus)}</Badge>
                       </td>
                       <td>
-                        {charge.paidAt ? (
+                        {charge.provider ? (
+                          <div className="space-y-1">
+                            <Badge variant={charge.externalPaymentId ? "info" : "warning"}>
+                              {paymentProviderLabel(charge.provider)}
+                            </Badge>
+                            <p className="text-xs text-text-muted">
+                              {billingTypeLabel(charge.billingType)}
+                              {charge.externalStatus ? ` - ${charge.externalStatus}` : ""}
+                            </p>
+                            {charge.invoiceUrl ? (
+                              <Link href={charge.invoiceUrl} target="_blank" rel="noreferrer" className="text-xs font-semibold text-school-primary hover:underline">
+                                Abrir fatura
+                              </Link>
+                            ) : null}
+                            {charge.syncError ? <p className="max-w-[220px] whitespace-normal text-xs text-warning">{charge.syncError}</p> : null}
+                          </div>
+                        ) : charge.paidAt ? (
                           <>
                             <p>{formatDate(charge.paidAt)}</p>
                             <p className="text-xs text-text-muted">Pagamento manual</p>
@@ -264,6 +296,34 @@ export default async function AdminFinancialPage({
                                 </Button>
                               </form>
                             </details>
+                          ) : null}
+                          {canGenerateExternalPayment ? (
+                            <>
+                              <form action={generateExternalPaymentAction}>
+                                <input type="hidden" name="chargeId" value={charge.id} />
+                                <input type="hidden" name="billingType" value="PIX" />
+                                <ConfirmSubmitButton
+                                  message="Gerar cobranca Pix no Asaas Sandbox?"
+                                  pendingLabel="Gerando..."
+                                  icon="none"
+                                  variant="subtle"
+                                >
+                                  Gerar Pix
+                                </ConfirmSubmitButton>
+                              </form>
+                              <form action={generateExternalPaymentAction}>
+                                <input type="hidden" name="chargeId" value={charge.id} />
+                                <input type="hidden" name="billingType" value="BOLETO" />
+                                <ConfirmSubmitButton
+                                  message="Gerar boleto no Asaas Sandbox?"
+                                  pendingLabel="Gerando..."
+                                  icon="none"
+                                  variant="outline"
+                                >
+                                  Gerar Boleto
+                                </ConfirmSubmitButton>
+                              </form>
+                            </>
                           ) : null}
                           {editable ? (
                             <form action={markChargePaidAction}>

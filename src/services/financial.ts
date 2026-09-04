@@ -1,9 +1,22 @@
-import type { ChargeStatus, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import type { ChargeStatus, ExternalBillingType } from "@prisma/client";
+import {
+  AsaasClientError,
+  createAsaasCustomer,
+  createAsaasPayment,
+  findAsaasCustomerByExternalReference,
+  findAsaasPaymentByExternalReference,
+  getAsaasPixQrCode,
+  type AsaasBillingType,
+  type AsaasPixQrCode,
+  type AsaasWebhookPayload
+} from "@/lib/asaas-client";
 import { hasCommercialFeature } from "@/lib/commercial-plans";
 import {
   dateFromCivilInput,
   getChargeDisplayStatus,
   parseCurrencyInput,
+  toCivilDateKey,
   todayCivilDate
 } from "@/lib/financial-core";
 import { prisma } from "@/lib/prisma";
@@ -28,7 +41,20 @@ export type ChargeUpdateInput = {
 };
 
 export class FinancialError extends Error {
-  constructor(public code: "plano" | "aluno" | "matricula" | "valor" | "data" | "status" | "cobranca", message: string) {
+  constructor(
+    public code:
+      | "plano"
+      | "aluno"
+      | "matricula"
+      | "valor"
+      | "data"
+      | "status"
+      | "cobranca"
+      | "responsavel"
+      | "documento"
+      | "asaas",
+    message: string
+  ) {
     super(message);
     this.name = "FinancialError";
   }
@@ -116,6 +142,112 @@ async function resolveChargeStudent(tx: TransactionClient, schoolId: string, stu
   };
 }
 
+function onlyDigits(value?: string | null) {
+  return value?.replace(/\D/g, "") ?? "";
+}
+
+function validCpfCnpj(value?: string | null) {
+  const digits = onlyDigits(value);
+  return digits.length === 11 || digits.length === 14 ? digits : null;
+}
+
+function externalCustomerReference(schoolId: string, guardianId: string) {
+  return `azura:${schoolId}:guardian:${guardianId}`;
+}
+
+function externalChargeReference(chargeId: string) {
+  return `azura:charge:${chargeId}`;
+}
+
+function summarizeIntegrationError(error: unknown) {
+  if (error instanceof FinancialError || error instanceof AsaasClientError) return error.message.slice(0, 240);
+  if (error instanceof Error) return error.message.slice(0, 240);
+  return "Nao foi possivel concluir a integracao externa.";
+}
+
+async function upsertExternalCustomerMapping(schoolId: string, guardianId: string, externalCustomerId: string) {
+  return prisma.guardianExternalCustomer.upsert({
+    where: {
+      schoolId_guardianId_provider: {
+        schoolId,
+        guardianId,
+        provider: "ASAAS"
+      }
+    },
+    update: { externalCustomerId },
+    create: {
+      schoolId,
+      guardianId,
+      provider: "ASAAS",
+      externalCustomerId
+    }
+  });
+}
+
+async function ensureAsaasCustomer(schoolId: string, guardian: { id: string; fullName: string; cpf: string | null; email: string | null; phone: string | null }) {
+  const mapped = await prisma.guardianExternalCustomer.findUnique({
+    where: {
+      schoolId_guardianId_provider: {
+        schoolId,
+        guardianId: guardian.id,
+        provider: "ASAAS"
+      }
+    }
+  });
+
+  if (mapped) return mapped.externalCustomerId;
+
+  const cpfCnpj = validCpfCnpj(guardian.cpf);
+  if (!cpfCnpj) {
+    throw new FinancialError("documento", "Responsavel sem CPF/CNPJ valido para gerar cobranca externa.");
+  }
+
+  const externalReference = externalCustomerReference(schoolId, guardian.id);
+  const existingCustomer = await findAsaasCustomerByExternalReference(externalReference);
+  const customer =
+    existingCustomer ??
+    (await createAsaasCustomer({
+      name: guardian.fullName,
+      cpfCnpj,
+      email: guardian.email,
+      mobilePhone: onlyDigits(guardian.phone) || undefined,
+      externalReference
+    }));
+
+  await upsertExternalCustomerMapping(schoolId, guardian.id, customer.id);
+  return customer.id;
+}
+
+async function findOrCreateAsaasPayment(input: {
+  customerId: string;
+  chargeId: string;
+  billingType: AsaasBillingType;
+  value: number;
+  dueDate: Date;
+  description?: string | null;
+}) {
+  const externalReference = externalChargeReference(input.chargeId);
+  const existingPayment = await findAsaasPaymentByExternalReference(externalReference);
+  if (existingPayment) return existingPayment;
+
+  try {
+    return await createAsaasPayment({
+      customer: input.customerId,
+      billingType: input.billingType,
+      value: input.value,
+      dueDate: toCivilDateKey(input.dueDate),
+      description: input.description,
+      externalReference
+    });
+  } catch (error) {
+    if (error instanceof AsaasClientError && (error.code === "timeout" || error.code === "request")) {
+      const recoveredPayment = await findAsaasPaymentByExternalReference(externalReference);
+      if (recoveredPayment) return recoveredPayment;
+    }
+    throw error;
+  }
+}
+
 export async function createCharge(schoolId: string, userId: string, input: ChargeFormInput) {
   return prisma.$transaction(async (tx) => {
     await assertFinancialFeature(schoolId, tx);
@@ -149,6 +281,99 @@ export async function createCharge(schoolId: string, userId: string, input: Char
   });
 }
 
+export async function generateExternalPayment(
+  schoolId: string,
+  userId: string,
+  chargeId: string,
+  billingType: ExternalBillingType
+) {
+  await assertFinancialFeature(schoolId);
+
+  const charge = await prisma.charge.findFirst({
+    where: { id: chargeId, schoolId },
+    include: {
+      guardian: true,
+      student: true
+    }
+  });
+
+  if (!charge) throw new FinancialError("cobranca", "Cobranca nao encontrada.");
+  if (charge.status !== "PENDING") throw new FinancialError("status", "Somente cobrancas pendentes podem gerar pagamento externo.");
+  if (charge.externalPaymentId) throw new FinancialError("status", "Esta cobranca ja possui pagamento externo.");
+  if (charge.externalStatus === "CREATING") throw new FinancialError("status", "A integracao desta cobranca ja esta em andamento.");
+  if (!charge.guardian) throw new FinancialError("responsavel", "Informe um responsavel pagador antes de gerar pagamento externo.");
+
+  const reserved = await prisma.charge.updateMany({
+    where: {
+      id: charge.id,
+      schoolId,
+      status: "PENDING",
+      externalPaymentId: null,
+      OR: [{ externalStatus: null }, { externalStatus: { not: "CREATING" } }]
+    },
+    data: {
+      provider: "ASAAS",
+      billingType,
+      externalStatus: "CREATING",
+      syncError: null
+    }
+  });
+
+  if (reserved.count !== 1) {
+    throw new FinancialError("status", "A cobranca ja esta sendo processada. Aguarde e tente novamente.");
+  }
+
+  try {
+    const customerId = await ensureAsaasCustomer(schoolId, charge.guardian);
+    const payment = await findOrCreateAsaasPayment({
+      customerId,
+      chargeId: charge.id,
+      billingType,
+      value: Number(charge.amount),
+      dueDate: charge.dueDate,
+      description: charge.description ?? charge.reference
+    });
+
+    await prisma.$transaction(async (tx) => {
+      await tx.charge.update({
+        where: { id: charge.id },
+        data: {
+          provider: "ASAAS",
+          externalPaymentId: payment.id,
+          billingType,
+          invoiceUrl: payment.invoiceUrl ?? payment.bankSlipUrl ?? null,
+          externalStatus: payment.status ?? null,
+          syncError: null
+        }
+      });
+
+      await tx.auditLog.create({
+        data: {
+          schoolId,
+          userId,
+          action: "financial_charge.external_payment_created",
+          entity: "Charge",
+          entityId: charge.id
+        }
+      });
+    });
+
+    return charge.id;
+  } catch (error) {
+    await prisma.charge.update({
+      where: { id: charge.id },
+      data: {
+        provider: "ASAAS",
+        billingType,
+        externalStatus: "ERROR",
+        syncError: summarizeIntegrationError(error)
+      }
+    });
+
+    throw new FinancialError("asaas", summarizeIntegrationError(error));
+  }
+}
+
 export async function updateCharge(schoolId: string, userId: string, input: ChargeUpdateInput) {
   return prisma.$transaction(async (tx) => {
     await assertFinancialFeature(schoolId, tx);
@@ -157,6 +382,9 @@ export async function updateCharge(schoolId: string, userId: string, input: Char
 
     if (!charge) throw new FinancialError("cobranca", "Cobranca nao encontrada.");
     if (charge.status !== "PENDING") throw new FinancialError("status", "Somente cobrancas pendentes podem ser editadas.");
+    if (charge.externalPaymentId) {
+      throw new FinancialError("status", "Cobrancas integradas ao Asaas nao podem ser editadas localmente.");
+    }
 
     await tx.charge.update({
       where: { id: charge.id },
@@ -187,6 +415,9 @@ export async function markChargePaid(schoolId: string, userId: string, chargeId:
 
     if (!charge) throw new FinancialError("cobranca", "Cobranca nao encontrada.");
     if (charge.status !== "PENDING") throw new FinancialError("status", "Somente cobrancas pendentes podem ser pagas manualmente.");
+    if (charge.externalPaymentId) {
+      throw new FinancialError("status", "Cobrancas integradas ao Asaas devem ser confirmadas por webhook.");
+    }
 
     await tx.charge.update({
       where: { id: charge.id },
@@ -212,6 +443,9 @@ export async function cancelCharge(schoolId: string, userId: string, chargeId: s
 
     if (!charge) throw new FinancialError("cobranca", "Cobranca nao encontrada.");
     if (charge.status !== "PENDING") throw new FinancialError("status", "Somente cobrancas pendentes podem ser canceladas.");
+    if (charge.externalPaymentId) {
+      throw new FinancialError("status", "Cobrancas integradas ao Asaas nao podem ser canceladas apenas localmente.");
+    }
 
     await tx.charge.update({
       where: { id: charge.id },
@@ -358,5 +592,144 @@ export async function getGuardianFinancialPortal(schoolId: string, userId: strin
       })
     : [];
 
-  return { guardian, children, selectedStudent, charges };
+  const pixInstructions = Object.fromEntries(
+    await Promise.all(
+      charges
+        .filter((charge) => charge.provider === "ASAAS" && charge.billingType === "PIX" && charge.externalPaymentId)
+        .map(async (charge) => {
+          try {
+            const pix = await getAsaasPixQrCode(charge.externalPaymentId as string);
+            return [charge.id, { pix }] as const;
+          } catch (error) {
+            return [charge.id, { error: summarizeIntegrationError(error) }] as const;
+          }
+        })
+    )
+  ) as Record<string, { pix?: AsaasPixQrCode; error?: string }>;
+
+  return { guardian, children, selectedStudent, charges, pixInstructions };
+}
+
+function webhookEventId(payload: AsaasWebhookPayload) {
+  const paymentId = payload.payment?.id ?? "sem-pagamento";
+  const status = payload.payment?.status ?? "sem-status";
+  return payload.id ?? payload.eventId ?? `${payload.event ?? "UNKNOWN"}:${paymentId}:${status}`;
+}
+
+function parseAsaasPaymentDate(payload: AsaasWebhookPayload) {
+  const value = payload.payment?.paymentDate ?? payload.payment?.clientPaymentDate ?? payload.payment?.confirmedDate;
+  if (!value) return new Date();
+
+  const parsed = dateFromCivilInput(value);
+  const fallback = new Date(value);
+  if (parsed) return parsed;
+  return Number.isNaN(fallback.getTime()) ? new Date() : fallback;
+}
+
+function isUniqueConstraintError(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+export async function processAsaasWebhook(payload: AsaasWebhookPayload) {
+  const eventType = payload.event ?? "UNKNOWN";
+  const externalPaymentId = payload.payment?.id ?? null;
+  const externalEventId = webhookEventId(payload);
+
+  try {
+    await prisma.asaasWebhookEvent.create({
+      data: {
+        externalEventId,
+        eventType,
+        externalPaymentId
+      }
+    });
+  } catch (error) {
+    if (isUniqueConstraintError(error)) return { status: "duplicate" as const };
+    throw error;
+  }
+
+  try {
+    if (!externalPaymentId) {
+      throw new Error("Webhook sem identificador de pagamento.");
+    }
+
+    const charge = await prisma.charge.findUnique({
+      where: { externalPaymentId },
+      select: { id: true, schoolId: true, status: true }
+    });
+
+    if (!charge) {
+      throw new Error("Pagamento externo nao encontrado em cobrancas Azura.");
+    }
+
+    if (eventType === "PAYMENT_CONFIRMED" || eventType === "PAYMENT_RECEIVED") {
+      await prisma.$transaction(async (tx) => {
+        await tx.charge.update({
+          where: { id: charge.id },
+          data: {
+            status: "PAID",
+            paidAt: charge.status === "PAID" ? undefined : parseAsaasPaymentDate(payload),
+            externalStatus: payload.payment?.status ?? eventType,
+            syncError: null
+          }
+        });
+
+        await tx.auditLog.create({
+          data: {
+            schoolId: charge.schoolId,
+            userId: null,
+            action: "financial_charge.webhook_paid",
+            entity: "Charge",
+            entityId: charge.id
+          }
+        });
+      });
+    } else if (eventType === "PAYMENT_REFUNDED") {
+      await prisma.$transaction(async (tx) => {
+        await tx.charge.update({
+          where: { id: charge.id },
+          data: {
+            status: "REFUNDED",
+            externalStatus: payload.payment?.status ?? eventType,
+            syncError: null
+          }
+        });
+
+        await tx.auditLog.create({
+          data: {
+            schoolId: charge.schoolId,
+            userId: null,
+            action: "financial_charge.webhook_refunded",
+            entity: "Charge",
+            entityId: charge.id
+          }
+        });
+      });
+    } else if (eventType === "PAYMENT_OVERDUE") {
+      await prisma.charge.update({
+        where: { id: charge.id },
+        data: {
+          externalStatus: payload.payment?.status ?? eventType,
+          syncError: null
+        }
+      });
+    }
+
+    await prisma.asaasWebhookEvent.update({
+      where: { externalEventId },
+      data: { processedAt: new Date(), processingError: null }
+    });
+
+    return { status: "processed" as const };
+  } catch (error) {
+    await prisma.asaasWebhookEvent.update({
+      where: { externalEventId },
+      data: {
+        processedAt: new Date(),
+        processingError: summarizeIntegrationError(error)
+      }
+    });
+
+    return { status: "stored_with_error" as const };
+  }
 }
