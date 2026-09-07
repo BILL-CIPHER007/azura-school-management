@@ -17,11 +17,14 @@ import {
 } from "@/lib/asaas-client";
 import { hasCommercialFeature } from "@/lib/commercial-plans";
 import {
+  billingCompetenceLabel,
   canCancelAsaasPaymentStatus,
   canRequestRefund,
   dateFromCivilInput,
+  dueDateFromBillingCompetence,
   getChargeDisplayStatus,
   nextChargeStatusFromAsaas,
+  normalizeBillingCompetence,
   normalizeAsaasPaymentStatus,
   parseCurrencyInput,
   toCivilDateKey,
@@ -60,7 +63,11 @@ export class FinancialError extends Error {
       | "cobranca"
       | "responsavel"
       | "documento"
-      | "asaas",
+      | "asaas"
+      | "regra"
+      | "competencia"
+      | "lote"
+      | "emissao",
     message: string
   ) {
     super(message);
@@ -1017,6 +1024,597 @@ export async function getStudentFinancialSummary(schoolId: string, studentId: st
     },
     { count: 0, openAmount: 0 }
   );
+}
+
+type BillingClient = TransactionClient | typeof prisma;
+type BillingRuleWithClassroom = Prisma.BillingRuleGetPayload<{ include: { classroom: true } }>;
+type BillingEnrollment = Prisma.EnrollmentGetPayload<{
+  include: {
+    academicYear: true;
+    classroom: true;
+    student: {
+      include: {
+        guardians: {
+          include: { guardian: true };
+        };
+      };
+    };
+  };
+}>;
+
+export type BillingRuleFormInput = {
+  ruleId?: string;
+  name: string;
+  amount: string;
+  dueDay: string;
+  classroomId?: string;
+  startsOn?: string;
+  endsOn?: string;
+  notes?: string;
+  isActive?: boolean;
+};
+
+export type BillingPreviewRow = {
+  studentId: string;
+  enrollmentId: string;
+  studentName: string;
+  classroomName: string;
+  academicYear: number;
+  guardianId: string | null;
+  guardianName: string | null;
+  hasPaymentGuardian: boolean;
+  existingChargeId: string | null;
+  existingStatus: ChargeStatus | null;
+  canGenerate: boolean;
+  situation: "READY" | "EXISTS" | "NO_PAYMENT_GUARDIAN";
+};
+
+export type BillingPreview = {
+  competence: string;
+  competenceLabel: string;
+  dueDate: Date;
+  amount: string;
+  canGenerate: boolean;
+  rangeWarning: string | null;
+  summary: {
+    totalStudents: number;
+    eligibleStudents: number;
+    skippedStudents: number;
+    existingCharges: number;
+    missingPaymentGuardian: number;
+    predictedAmount: number;
+  };
+  rows: BillingPreviewRow[];
+};
+
+function parseOptionalCivilDate(value?: string) {
+  if (!value?.trim()) return null;
+  const parsed = dateFromCivilInput(value.trim());
+  if (!parsed) throw new FinancialError("data", "Informe uma data valida.");
+  return parsed;
+}
+
+function currentBillingCompetence() {
+  const today = todayCivilDate();
+  return `${today.getUTCFullYear()}-${String(today.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function parseBillingRuleInput(input: BillingRuleFormInput) {
+  const amount = parseCurrencyInput(input.amount);
+  const dueDay = Number(input.dueDay);
+  const name = input.name.trim();
+  const classroomId = input.classroomId?.trim() || null;
+  const startsOn = parseOptionalCivilDate(input.startsOn);
+  const endsOn = parseOptionalCivilDate(input.endsOn);
+
+  if (!name) throw new FinancialError("regra", "Informe o nome da mensalidade.");
+  if (!amount) throw new FinancialError("valor", "Informe um valor valido maior que zero.");
+  if (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31) {
+    throw new FinancialError("data", "Informe um dia de vencimento entre 1 e 31.");
+  }
+  if (startsOn && endsOn && startsOn > endsOn) {
+    throw new FinancialError("data", "A data inicial nao pode ser posterior a data final.");
+  }
+
+  return {
+    name,
+    amount,
+    dueDay,
+    classroomId,
+    targetScope: classroomId ? ("CLASSROOM" as const) : ("SCHOOL" as const),
+    startsOn,
+    endsOn,
+    notes: input.notes?.trim() || null,
+    isActive: input.isActive ?? true
+  };
+}
+
+function ensureBillingCompetence(value?: string | null) {
+  const competence = normalizeBillingCompetence(value || currentBillingCompetence());
+  if (!competence) throw new FinancialError("competencia", "Informe uma competencia valida.");
+  return competence;
+}
+
+async function getActiveAcademicYearForBilling(tx: BillingClient, schoolId: string) {
+  const activeYear = await tx.academicYear.findFirst({
+    where: { schoolId, isActive: true },
+    orderBy: { year: "desc" }
+  });
+
+  if (activeYear) return activeYear;
+
+  return tx.academicYear.findFirst({
+    where: { schoolId },
+    orderBy: { year: "desc" }
+  });
+}
+
+async function resolveBillingRule(tx: BillingClient, schoolId: string, billingRuleId: string) {
+  const rule = await tx.billingRule.findFirst({
+    where: { id: billingRuleId, schoolId },
+    include: { classroom: true }
+  });
+
+  if (!rule) throw new FinancialError("regra", "Regra de mensalidade nao encontrada.");
+  return rule;
+}
+
+function getBillingRuleRangeWarning(rule: BillingRuleWithClassroom, dueDate: Date) {
+  if (rule.startsOn && dueDate < rule.startsOn) {
+    return "A regra de mensalidade ainda nao cobre esta competencia.";
+  }
+  if (rule.endsOn && dueDate > rule.endsOn) {
+    return "A regra de mensalidade nao cobre mais esta competencia.";
+  }
+  return null;
+}
+
+function assertBillingRuleCoversDueDate(rule: BillingRuleWithClassroom, dueDate: Date) {
+  const warning = getBillingRuleRangeWarning(rule, dueDate);
+  if (warning) throw new FinancialError("regra", warning);
+}
+
+function selectDistinctActiveEnrollments(enrollments: BillingEnrollment[]) {
+  const byStudent = new Map<string, BillingEnrollment>();
+  for (const enrollment of enrollments) {
+    const current = byStudent.get(enrollment.studentId);
+    if (!current || enrollment.enrolledAt > current.enrolledAt) {
+      byStudent.set(enrollment.studentId, enrollment);
+    }
+  }
+
+  return Array.from(byStudent.values()).sort((a, b) => a.student.fullName.localeCompare(b.student.fullName, "pt-BR"));
+}
+
+async function getEligibleBillingEnrollments(tx: BillingClient, schoolId: string, rule: BillingRuleWithClassroom) {
+  const activeAcademicYear = await getActiveAcademicYearForBilling(tx, schoolId);
+  if (!activeAcademicYear) return [];
+
+  const enrollments = await tx.enrollment.findMany({
+    where: {
+      schoolId,
+      status: "ACTIVE",
+      academicYearId: activeAcademicYear.id,
+      ...(rule.classroomId ? { classroomId: rule.classroomId } : {})
+    },
+    include: {
+      academicYear: true,
+      classroom: true,
+      student: {
+        include: {
+          guardians: {
+            where: { guardian: { schoolId } },
+            include: { guardian: true },
+            orderBy: [{ isPrimary: "desc" }, { guardian: { fullName: "asc" } }]
+          }
+        }
+      }
+    },
+    orderBy: [{ studentId: "asc" }, { enrolledAt: "desc" }]
+  });
+
+  return selectDistinctActiveEnrollments(enrollments);
+}
+
+async function buildBillingPreview(
+  tx: BillingClient,
+  schoolId: string,
+  rule: BillingRuleWithClassroom,
+  rawCompetence: string
+): Promise<BillingPreview> {
+  const competence = ensureBillingCompetence(rawCompetence);
+  const dueDate = dueDateFromBillingCompetence(competence, rule.dueDay);
+  if (!dueDate) throw new FinancialError("data", "Nao foi possivel calcular o vencimento da competencia.");
+  const rangeWarning = getBillingRuleRangeWarning(rule, dueDate);
+
+  const enrollments = rangeWarning ? [] : await getEligibleBillingEnrollments(tx, schoolId, rule);
+  const studentIds = enrollments.map((enrollment) => enrollment.studentId);
+  const existingCharges = studentIds.length
+    ? await tx.charge.findMany({
+        where: {
+          schoolId,
+          billingRuleId: rule.id,
+          competence,
+          studentId: { in: studentIds }
+        },
+        select: { id: true, studentId: true, status: true }
+      })
+    : [];
+  const existingByStudent = new Map(existingCharges.map((charge) => [charge.studentId, charge]));
+
+  const rows = enrollments.map((enrollment) => {
+    const guardian = enrollment.student.guardians[0]?.guardian ?? null;
+    const existingCharge = existingByStudent.get(enrollment.studentId) ?? null;
+    const hasPaymentGuardian = Boolean(guardian && validCpfCnpj(guardian.cpf));
+    const canGenerate = !existingCharge;
+    return {
+      studentId: enrollment.studentId,
+      enrollmentId: enrollment.id,
+      studentName: enrollment.student.fullName,
+      classroomName: enrollment.classroom.name,
+      academicYear: enrollment.academicYear.year,
+      guardianId: guardian?.id ?? null,
+      guardianName: guardian?.fullName ?? null,
+      hasPaymentGuardian,
+      existingChargeId: existingCharge?.id ?? null,
+      existingStatus: existingCharge?.status ?? null,
+      canGenerate,
+      situation: existingCharge ? ("EXISTS" as const) : hasPaymentGuardian ? ("READY" as const) : ("NO_PAYMENT_GUARDIAN" as const)
+    };
+  });
+
+  const eligibleStudents = rows.filter((row) => row.canGenerate).length;
+  const missingPaymentGuardian = rows.filter((row) => row.canGenerate && !row.hasPaymentGuardian).length;
+  const amount = Number(rule.amount);
+
+  return {
+    competence,
+    competenceLabel: billingCompetenceLabel(competence),
+    dueDate,
+    amount: rule.amount.toString(),
+    canGenerate: !rangeWarning,
+    rangeWarning,
+    summary: {
+      totalStudents: rows.length,
+      eligibleStudents,
+      skippedStudents: existingCharges.length,
+      existingCharges: existingCharges.length,
+      missingPaymentGuardian,
+      predictedAmount: eligibleStudents * amount
+    },
+    rows
+  };
+}
+
+function summarizeBatchCharges(
+  charges: Array<{
+    amount: Prisma.Decimal;
+    dueDate: Date;
+    status: ChargeStatus;
+    externalPaymentId: string | null;
+    externalStatus: string | null;
+  }>
+) {
+  return charges.reduce(
+    (summary, charge) => {
+      const displayStatus = getChargeDisplayStatus(charge.status, charge.dueDate);
+      const amount = Number(charge.amount);
+      if (displayStatus === "PENDING") summary.pending += 1;
+      if (displayStatus === "OVERDUE") summary.overdue += 1;
+      if (displayStatus === "PAID") {
+        summary.paid += 1;
+        summary.receivedAmount += amount;
+      }
+      if (displayStatus === "CANCELED") summary.canceled += 1;
+      if (displayStatus === "REFUNDED") summary.refunded += 1;
+      if (charge.externalPaymentId) summary.issued += 1;
+      if (charge.externalStatus === "ERROR") summary.errors += 1;
+      summary.total += 1;
+      summary.predictedAmount += amount;
+      return summary;
+    },
+    {
+      total: 0,
+      pending: 0,
+      overdue: 0,
+      paid: 0,
+      canceled: 0,
+      refunded: 0,
+      issued: 0,
+      errors: 0,
+      predictedAmount: 0,
+      receivedAmount: 0
+    }
+  );
+}
+
+export async function getRecurringBillingAdmin(
+  schoolId: string,
+  filters: { billingRuleId?: string; competence?: string } = {}
+) {
+  await assertFinancialFeature(schoolId);
+
+  const competence = ensureBillingCompetence(filters.competence);
+  const [rules, activeAcademicYear] = await Promise.all([
+    prisma.billingRule.findMany({
+      where: { schoolId },
+      include: { classroom: true },
+      orderBy: [{ isActive: "desc" }, { createdAt: "desc" }]
+    }),
+    getActiveAcademicYearForBilling(prisma, schoolId)
+  ]);
+  const selectedRule =
+    rules.find((rule) => rule.id === filters.billingRuleId) ?? rules.find((rule) => rule.isActive) ?? rules[0] ?? null;
+
+  const [classrooms, preview, batches] = await Promise.all([
+    prisma.classroom.findMany({
+      where: { schoolId, ...(activeAcademicYear ? { academicYearId: activeAcademicYear.id } : {}) },
+      include: { academicYear: true },
+      orderBy: [{ gradeLevel: "asc" }, { name: "asc" }]
+    }),
+    selectedRule ? buildBillingPreview(prisma, schoolId, selectedRule, competence) : Promise.resolve(null),
+    prisma.billingBatch.findMany({
+      where: { schoolId },
+      include: {
+        billingRule: { include: { classroom: true } },
+        generatedBy: { select: { name: true } },
+        charges: {
+          select: { amount: true, dueDate: true, status: true, externalPaymentId: true, externalStatus: true }
+        }
+      },
+      orderBy: [{ competence: "desc" }, { createdAt: "desc" }],
+      take: 24
+    })
+  ]);
+
+  return {
+    rules,
+    classrooms,
+    selectedRule,
+    selectedCompetence: competence,
+    preview,
+    batches: batches.map((batch) => ({
+      ...batch,
+      summary: summarizeBatchCharges(batch.charges)
+    }))
+  };
+}
+
+export async function saveBillingRule(schoolId: string, userId: string, input: BillingRuleFormInput) {
+  return prisma.$transaction(async (tx) => {
+    await assertFinancialFeature(schoolId, tx);
+    const parsed = parseBillingRuleInput(input);
+
+    if (parsed.classroomId) {
+      const classroom = await tx.classroom.findFirst({
+        where: { id: parsed.classroomId, schoolId },
+        select: { id: true }
+      });
+      if (!classroom) throw new FinancialError("regra", "Turma nao encontrada nesta escola.");
+    }
+
+    const rule = input.ruleId
+      ? await (async () => {
+          const existingRule = await tx.billingRule.findFirst({
+            where: { id: input.ruleId, schoolId },
+            select: { id: true }
+          });
+          if (!existingRule) throw new FinancialError("regra", "Regra de mensalidade nao encontrada.");
+          return tx.billingRule.update({
+            where: { id: existingRule.id },
+            data: parsed
+          });
+        })()
+      : await tx.billingRule.create({
+          data: {
+            schoolId,
+            ...parsed
+          }
+        });
+
+    await tx.auditLog.create({
+      data: {
+        schoolId,
+        userId,
+        action: input.ruleId ? "billing_rule.updated" : "billing_rule.created",
+        entity: "BillingRule",
+        entityId: rule.id
+      }
+    });
+
+    return rule.id;
+  });
+}
+
+export async function generateBillingBatch(schoolId: string, userId: string, input: { billingRuleId: string; competence: string }) {
+  return prisma.$transaction(async (tx) => {
+    await assertFinancialFeature(schoolId, tx);
+    const rule = await resolveBillingRule(tx, schoolId, input.billingRuleId);
+    if (!rule.isActive) throw new FinancialError("regra", "A regra de mensalidade esta inativa.");
+
+    const preview = await buildBillingPreview(tx, schoolId, rule, input.competence);
+    assertBillingRuleCoversDueDate(rule, preview.dueDate);
+    const batch = await tx.billingBatch.upsert({
+      where: {
+        schoolId_billingRuleId_competence: {
+          schoolId,
+          billingRuleId: rule.id,
+          competence: preview.competence
+        }
+      },
+      create: {
+        schoolId,
+        billingRuleId: rule.id,
+        competence: preview.competence,
+        dueDate: preview.dueDate,
+        totalStudents: preview.summary.totalStudents,
+        eligibleStudents: preview.summary.eligibleStudents,
+        skippedStudents: preview.summary.skippedStudents,
+        existingCharges: preview.summary.existingCharges,
+        amountTotal: preview.summary.predictedAmount.toFixed(2),
+        generatedById: userId
+      },
+      update: {
+        dueDate: preview.dueDate,
+        totalStudents: preview.summary.totalStudents,
+        eligibleStudents: preview.summary.eligibleStudents,
+        skippedStudents: preview.summary.skippedStudents,
+        existingCharges: preview.summary.existingCharges,
+        amountTotal: preview.summary.predictedAmount.toFixed(2),
+        generatedById: userId
+      }
+    });
+
+    let created = 0;
+    for (const row of preview.rows.filter((item) => item.canGenerate)) {
+      try {
+        const charge = await tx.charge.create({
+          data: {
+            schoolId,
+            studentId: row.studentId,
+            enrollmentId: row.enrollmentId,
+            guardianId: row.guardianId,
+            billingRuleId: rule.id,
+            billingBatchId: batch.id,
+            competence: preview.competence,
+            reference: `${rule.name} ${preview.competenceLabel}`,
+            description: rule.notes ?? `Mensalidade referente a ${preview.competenceLabel}.`,
+            amount: rule.amount,
+            dueDate: preview.dueDate
+          }
+        });
+
+        await recordFinancialEvent(tx, {
+          schoolId,
+          userId,
+          chargeId: charge.id,
+          source: "ADMIN",
+          action: "financial_charge.recurring_created",
+          nextStatus: "PENDING",
+          message: `Mensalidade ${preview.competenceLabel} gerada em lote.`
+        });
+        created += 1;
+      } catch (error) {
+        if (!isUniqueConstraintError(error)) throw error;
+      }
+    }
+
+    const generatedCharges = await tx.charge.findMany({
+      where: {
+        schoolId,
+        billingRuleId: rule.id,
+        competence: preview.competence
+      },
+      select: { amount: true }
+    });
+    const amountTotal = generatedCharges.reduce((sum, charge) => sum + Number(charge.amount), 0);
+
+    await tx.billingBatch.update({
+      where: { id: batch.id },
+      data: {
+        generatedCharges: generatedCharges.length,
+        amountTotal: amountTotal.toFixed(2)
+      }
+    });
+
+    await tx.auditLog.create({
+      data: {
+        schoolId,
+        userId,
+        action: "billing_batch.generated",
+        entity: "BillingBatch",
+        entityId: batch.id
+      }
+    });
+
+    return {
+      batchId: batch.id,
+      competence: preview.competence,
+      created,
+      existing: preview.summary.existingCharges,
+      total: generatedCharges.length
+    };
+  });
+}
+
+export async function emitBillingBatchPayments(
+  schoolId: string,
+  userId: string,
+  input: { billingRuleId: string; competence: string; billingType: ExternalBillingType }
+) {
+  await assertFinancialFeature(schoolId);
+  const rule = await resolveBillingRule(prisma, schoolId, input.billingRuleId);
+  const competence = ensureBillingCompetence(input.competence);
+
+  const charges = await prisma.charge.findMany({
+    where: {
+      schoolId,
+      billingRuleId: rule.id,
+      competence,
+      status: "PENDING"
+    },
+    include: { guardian: true },
+    orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }]
+  });
+
+  let emitted = 0;
+  let failed = 0;
+  let skipped = 0;
+
+  for (const charge of charges) {
+    if (charge.externalPaymentId) {
+      skipped += 1;
+      continue;
+    }
+
+    if (!charge.guardian || !validCpfCnpj(charge.guardian.cpf)) {
+      const message = "Responsavel sem CPF/CNPJ valido para gerar cobranca externa.";
+      await prisma.$transaction(async (tx) => {
+        await tx.charge.update({
+          where: { id: charge.id },
+          data: {
+            provider: "ASAAS",
+            billingType: input.billingType,
+            externalStatus: "ERROR",
+            syncError: message
+          }
+        });
+        await recordFinancialEvent(tx, {
+          schoolId,
+          userId,
+          chargeId: charge.id,
+          source: "ADMIN",
+          action: "financial_charge.external_payment_failed",
+          previousStatus: charge.status,
+          nextStatus: charge.status,
+          previousExternalStatus: charge.externalStatus,
+          nextExternalStatus: "ERROR",
+          message
+        });
+      });
+      failed += 1;
+      continue;
+    }
+
+    try {
+      await generateExternalPayment(schoolId, userId, charge.id, input.billingType);
+      emitted += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+
+  await prisma.auditLog.create({
+    data: {
+      schoolId,
+      userId,
+      action: input.billingType === "PIX" ? "billing_batch.pix_issued" : "billing_batch.boleto_issued",
+      entity: "BillingRule",
+      entityId: rule.id
+    }
+  });
+
+  return { emitted, failed, skipped, total: charges.length };
 }
 
 export async function getGuardianFinancialPortal(schoolId: string, userId: string, selectedStudentId?: string) {

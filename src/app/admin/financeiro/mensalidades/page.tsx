@@ -1,0 +1,347 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { CalendarClock, CheckCircle2, CircleDollarSign, ReceiptText, UsersRound } from "lucide-react";
+import {
+  emitBillingBatchPaymentsAction,
+  generateBillingBatchAction,
+  saveBillingRuleAction
+} from "@/app/actions/financial";
+import { AdminEmptyState, AdminMetric, AdminPageHeader, AdminSection, AdminToolbar } from "@/components/admin/admin-ui";
+import { ConfirmSubmitButton } from "@/components/admin/confirm-submit-button";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import { CurrencyInput } from "@/app/admin/financeiro/financial-admin-controls";
+import {
+  billingCompetenceLabel,
+  billingTypeLabel,
+  formatCurrencyBRL
+} from "@/lib/financial-core";
+import { requireSession } from "@/lib/auth";
+import { formatDate } from "@/lib/utils";
+import { FinancialError, getRecurringBillingAdmin } from "@/services/financial";
+
+export const dynamic = "force-dynamic";
+
+const successMessages: Record<string, string> = {
+  regra: "Regra de mensalidade salva.",
+  lote: "Mensalidades geradas com sucesso.",
+  "lote-sem-novos": "Nenhuma nova mensalidade foi criada; as cobranças existentes foram preservadas.",
+  emissao: "Emissao em lote concluida.",
+  "emissao-parcial": "Emissao em lote concluida com algumas pendencias."
+};
+
+const errorMessages: Record<string, string> = {
+  validacao: "Revise os campos informados.",
+  plano: "O financeiro esta disponivel apenas no plano Profissional.",
+  regra: "Regra de mensalidade nao encontrada ou invalida.",
+  valor: "Informe um valor valido maior que zero.",
+  data: "Informe datas validas.",
+  competencia: "Informe uma competencia valida.",
+  lote: "Nao foi possivel gerar o lote.",
+  emissao: "Nao foi possivel concluir a emissao em lote.",
+  asaas: "Nao foi possivel concluir a integracao com o Asaas Sandbox."
+};
+
+type RecurringBillingAdminData = Awaited<ReturnType<typeof getRecurringBillingAdmin>>;
+type BillingRuleRow = RecurringBillingAdminData["rules"][number];
+type BillingBatchRow = RecurringBillingAdminData["batches"][number];
+type BillingPreviewRow = NonNullable<RecurringBillingAdminData["preview"]>["rows"][number];
+
+function currentMonthValue() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatDateInput(value?: Date | null) {
+  return value ? value.toISOString().slice(0, 10) : "";
+}
+
+function ruleScopeLabel(rule: BillingRuleRow) {
+  return rule.classroom ? rule.classroom.name : "Todos os alunos ativos";
+}
+
+function rowSituation(row: BillingPreviewRow) {
+  if (row.situation === "EXISTS") return { label: "Ja gerada", tone: "neutral" as const };
+  if (row.situation === "NO_PAYMENT_GUARDIAN") return { label: "Interna; Asaas pendente", tone: "warning" as const };
+  return { label: "Pronta", tone: "success" as const };
+}
+
+function batchRuleLabel(batch: BillingBatchRow) {
+  const scope = batch.billingRule.classroom ? ` - ${batch.billingRule.classroom.name}` : "";
+  return `${batch.billingRule.name}${scope}`;
+}
+
+export default async function AdminRecurringBillingPage({
+  searchParams
+}: {
+  searchParams: Promise<{ regra?: string; competencia?: string; erro?: string; sucesso?: string }>;
+}) {
+  const session = await requireSession(["ADMIN"]);
+  const query = await searchParams;
+
+  let data: RecurringBillingAdminData;
+  try {
+    data = await getRecurringBillingAdmin(session.schoolId, {
+      billingRuleId: query.regra,
+      competence: query.competencia || currentMonthValue()
+    });
+  } catch (error) {
+    if (error instanceof FinancialError && error.code === "plano") {
+      redirect("/admin/configuracoes?erro=financeiro-plano");
+    }
+    throw error;
+  }
+
+  const selectedRule = data.selectedRule;
+  const preview = data.preview;
+  const feedback = query.sucesso
+    ? successMessages[query.sucesso]
+    : query.erro
+      ? errorMessages[query.erro] ?? "Nao foi possivel concluir a acao."
+      : null;
+  const feedbackTone = query.sucesso ? "success" : "warning";
+
+  return (
+    <main className="page-shell">
+      <AdminPageHeader
+        title="Mensalidades"
+        description="Configure regras recorrentes, visualize a competencia e gere cobrancas internas com seguranca."
+        breadcrumbs={[
+          { label: "Admin", href: "/admin/dashboard" },
+          { label: "Financeiro", href: "/admin/financeiro" },
+          { label: "Mensalidades" }
+        ]}
+        action={
+          <Button asChild variant="secondary">
+            <Link href="/admin/financeiro">Cobrancas</Link>
+          </Button>
+        }
+      />
+
+      {feedback ? (
+        <div className="rounded-lg border border-border bg-surface p-4 text-sm shadow-sm">
+          <Badge variant={feedbackTone}>{feedback}</Badge>
+        </div>
+      ) : null}
+
+      <AdminSection
+        title="Configuracao da mensalidade"
+        description="Defina a regra recorrente usada para gerar cobrancas por competencia."
+      >
+        <form action={saveBillingRuleAction} className="grid gap-3 lg:grid-cols-[1.1fr_160px_130px_1fr]">
+          {selectedRule ? <input type="hidden" name="ruleId" value={selectedRule.id} /> : null}
+          <Input name="name" placeholder="Nome da mensalidade" defaultValue={selectedRule?.name ?? ""} required />
+          <CurrencyInput name="amount" defaultValue={selectedRule?.amount.toString()} required />
+          <Input
+            name="dueDay"
+            type="number"
+            min={1}
+            max={31}
+            placeholder="Dia"
+            defaultValue={selectedRule?.dueDay.toString() ?? ""}
+            required
+          />
+          <Select name="classroomId" defaultValue={selectedRule?.classroomId ?? ""} aria-label="Publico-alvo">
+            <option value="">Todos os alunos ativos</option>
+            {data.classrooms.map((classroom) => (
+              <option key={classroom.id} value={classroom.id}>
+                {classroom.name} - {classroom.academicYear.year}
+              </option>
+            ))}
+          </Select>
+          <Input name="startsOn" type="date" defaultValue={formatDateInput(selectedRule?.startsOn)} aria-label="Periodo inicial" />
+          <Input name="endsOn" type="date" defaultValue={formatDateInput(selectedRule?.endsOn)} aria-label="Periodo final" />
+          <label className="flex h-10 items-center gap-2 rounded-md border border-input bg-surface px-3 text-sm text-text-secondary shadow-sm">
+            <input type="checkbox" name="isActive" defaultChecked={selectedRule?.isActive ?? true} className="h-4 w-4" />
+            Regra ativa
+          </label>
+          <Button type="submit">{selectedRule ? "Salvar regra" : "Criar regra"}</Button>
+          <textarea
+            name="notes"
+            placeholder="Observacao opcional para as cobrancas geradas"
+            defaultValue={selectedRule?.notes ?? ""}
+            className="min-h-20 rounded-md border border-input bg-surface px-3 py-2 text-sm shadow-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 lg:col-span-4"
+          />
+        </form>
+      </AdminSection>
+
+      <AdminToolbar>
+        <form className="grid gap-3 md:grid-cols-[1fr_180px_auto]">
+          <Select name="regra" defaultValue={selectedRule?.id ?? ""} aria-label="Regra de mensalidade">
+            {data.rules.length ? null : <option value="">Nenhuma regra configurada</option>}
+            {data.rules.map((rule) => (
+              <option key={rule.id} value={rule.id}>
+                {rule.name} - {ruleScopeLabel(rule)}
+              </option>
+            ))}
+          </Select>
+          <Input type="month" name="competencia" defaultValue={data.selectedCompetence} aria-label="Competencia" />
+          <Button type="submit" variant="secondary">
+            Atualizar preview
+          </Button>
+        </form>
+      </AdminToolbar>
+
+      {selectedRule && preview ? (
+        <>
+          <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+            <AdminMetric label="Alunos no escopo" value={preview.summary.totalStudents} detail="matriculas ativas" icon={UsersRound} />
+            <AdminMetric label="Elegiveis" value={preview.summary.eligibleStudents} detail="a gerar" icon={CheckCircle2} tone="success" />
+            <AdminMetric label="Ja existentes" value={preview.summary.existingCharges} detail="sem duplicar" icon={ReceiptText} tone="neutral" />
+            <AdminMetric label="Pendencias Asaas" value={preview.summary.missingPaymentGuardian} detail="responsavel" icon={CalendarClock} tone="warning" />
+            <AdminMetric label="Vencimento" value={formatDate(preview.dueDate)} detail={preview.competenceLabel} icon={CalendarClock} tone="info" />
+            <AdminMetric
+              label="Valor previsto"
+              value={formatCurrencyBRL(preview.summary.predictedAmount)}
+              detail="novas cobrancas"
+              icon={CircleDollarSign}
+              tone="info"
+            />
+          </section>
+
+          <AdminSection
+            title={`Preview da competencia ${preview.competenceLabel}`}
+            description="Nenhuma cobranca e criada antes da confirmacao."
+            action={
+              <form action={generateBillingBatchAction}>
+                <input type="hidden" name="billingRuleId" value={selectedRule.id} />
+                <input type="hidden" name="competence" value={preview.competence} />
+                <ConfirmSubmitButton
+                  message={`Gerar mensalidades de ${preview.competenceLabel}? Cobrancas existentes serao preservadas.`}
+                  pendingLabel="Gerando..."
+                  disabled={!preview.canGenerate}
+                >
+                  Gerar mensalidades
+                </ConfirmSubmitButton>
+              </form>
+            }
+          >
+            {preview.rangeWarning ? (
+              <AdminEmptyState title="Competencia fora da vigencia" description={preview.rangeWarning} />
+            ) : preview.rows.length ? (
+              <div className="overflow-x-auto">
+                <table className="data-table min-w-[980px]">
+                  <thead>
+                    <tr>
+                      <th>Aluno</th>
+                      <th>Turma</th>
+                      <th>Responsavel</th>
+                      <th>Valor</th>
+                      <th>Vencimento</th>
+                      <th>Situacao</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.rows.map((row) => {
+                      const situation = rowSituation(row);
+                      return (
+                        <tr key={row.enrollmentId}>
+                          <td className="font-semibold text-school-navy">{row.studentName}</td>
+                          <td>
+                            <p>{row.classroomName}</p>
+                            <p className="text-xs text-text-muted">Ano letivo {row.academicYear}</p>
+                          </td>
+                          <td>{row.guardianName ?? <span className="text-text-muted">Sem responsavel vinculado</span>}</td>
+                          <td className="font-semibold text-school-navy">{formatCurrencyBRL(preview.amount)}</td>
+                          <td>{formatDate(preview.dueDate)}</td>
+                          <td>
+                            <Badge variant={situation.tone}>{situation.label}</Badge>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <AdminEmptyState title="Nenhum aluno elegivel" description="Nao ha matriculas ativas no escopo desta regra." />
+            )}
+          </AdminSection>
+        </>
+      ) : (
+        <AdminEmptyState title="Configure uma regra de mensalidade" description="Depois de salvar a regra, o preview da competencia aparecera aqui." />
+      )}
+
+      <AdminSection title="Historico de competencias" description="Acompanhe lotes gerados e emita cobrancas internas no Asaas Sandbox.">
+        {data.batches.length ? (
+          <div className="overflow-x-auto">
+            <table className="data-table min-w-[1080px]">
+              <thead>
+                <tr>
+                  <th>Competencia</th>
+                  <th>Regra</th>
+                  <th>Geradas</th>
+                  <th>Resumo</th>
+                  <th>Valores</th>
+                  <th>Gerado por</th>
+                  <th>Acoes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.batches.map((batch) => (
+                  <tr key={batch.id}>
+                    <td>
+                      <p className="font-semibold text-school-navy">{billingCompetenceLabel(batch.competence)}</p>
+                      <p className="text-xs text-text-muted">Vencimento {formatDate(batch.dueDate)}</p>
+                    </td>
+                    <td>{batchRuleLabel(batch)}</td>
+                    <td>
+                      <p className="font-semibold text-school-navy">{batch.generatedCharges}</p>
+                      <p className="text-xs text-text-muted">
+                        {batch.existingCharges} existentes antes da geracao
+                      </p>
+                    </td>
+                    <td>
+                      <div className="flex flex-wrap gap-1.5">
+                        <Badge variant="warning">{batch.summary.pending} pendentes</Badge>
+                        <Badge variant="info">{batch.summary.issued} emitidas</Badge>
+                        <Badge variant="success">{batch.summary.paid} pagas</Badge>
+                        <Badge variant="danger">{batch.summary.overdue} vencidas</Badge>
+                        <Badge variant="neutral">{batch.summary.canceled} canceladas</Badge>
+                        {batch.summary.errors ? <Badge variant="danger">{batch.summary.errors} com erro</Badge> : null}
+                      </div>
+                    </td>
+                    <td>
+                      <p className="font-semibold text-school-navy">{formatCurrencyBRL(batch.summary.predictedAmount)}</p>
+                      <p className="text-xs text-text-muted">Recebido {formatCurrencyBRL(batch.summary.receivedAmount)}</p>
+                    </td>
+                    <td>
+                      <p>{batch.generatedBy?.name ?? "Sistema"}</p>
+                      <p className="text-xs text-text-muted">{formatDate(batch.createdAt)}</p>
+                    </td>
+                    <td>
+                      <div className="flex flex-wrap gap-2">
+                        {(["PIX", "BOLETO"] as const).map((billingType) => (
+                          <form key={billingType} action={emitBillingBatchPaymentsAction}>
+                            <input type="hidden" name="billingRuleId" value={batch.billingRuleId} />
+                            <input type="hidden" name="competence" value={batch.competence} />
+                            <input type="hidden" name="billingType" value={billingType} />
+                            <ConfirmSubmitButton
+                              message={`Emitir mensalidades pendentes em ${billingType === "PIX" ? "Pix" : "Boleto"} no Asaas Sandbox?`}
+                              pendingLabel="Emitindo..."
+                              icon="none"
+                              variant={billingType === "PIX" ? "subtle" : "outline"}
+                            >
+                              Emitir {billingTypeLabel(billingType)}
+                            </ConfirmSubmitButton>
+                          </form>
+                        ))}
+                        <Button asChild size="sm" variant="secondary">
+                          <Link href={`/admin/financeiro?mes=${batch.competence}`}>Ver cobrancas</Link>
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <AdminEmptyState title="Nenhuma competencia gerada" description="Os lotes de mensalidades aparecerao aqui apos a geracao." />
+        )}
+      </AdminSection>
+    </main>
+  );
+}

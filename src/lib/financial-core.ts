@@ -99,6 +99,35 @@ export function todayCivilDate(timeZone = "America/Sao_Paulo") {
   return dateFromCivilInput(todayKey) ?? new Date();
 }
 
+export function normalizeBillingCompetence(value: string) {
+  const trimmed = value.trim();
+  if (!/^\d{4}-\d{2}$/.test(trimmed)) return null;
+
+  const [year, month] = trimmed.split("-").map(Number);
+  if (year < 2000 || year > 2100 || month < 1 || month > 12) return null;
+
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+export function billingCompetenceLabel(value: string) {
+  const competence = normalizeBillingCompetence(value);
+  if (!competence) return value;
+
+  const [year, month] = competence.split("-");
+  return `${month}/${year}`;
+}
+
+export function dueDateFromBillingCompetence(competence: string, dueDay: number) {
+  const normalized = normalizeBillingCompetence(competence);
+  if (!normalized || !Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31) return null;
+
+  const [year, month] = normalized.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year, month, 0, 12)).getUTCDate();
+  const day = Math.min(dueDay, lastDay);
+
+  return dateFromCivilInput(`${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`);
+}
+
 export function getChargeDisplayStatus(status: ChargeStatus, dueDate: Date, now = new Date()): ChargeDisplayStatus {
   if (status !== "PENDING") return status;
   return toCivilDateKey(dueDate) < toCivilDateKey(now) ? "OVERDUE" : "PENDING";

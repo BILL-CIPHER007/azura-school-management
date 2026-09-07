@@ -11,7 +11,8 @@
     "lint": "eslint .",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:seed": "tsx prisma/seed.ts"
+    "prisma:seed": "tsx prisma/seed.ts",
+    "validate:recurring-billing": "tsx scripts/validate-recurring-billing.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

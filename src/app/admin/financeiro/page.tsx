@@ -166,6 +166,11 @@ export default async function AdminFinancialPage({
           { label: "Admin", href: "/admin/dashboard" },
           { label: "Financeiro" }
         ]}
+        action={
+          <Button asChild variant="secondary">
+            <Link href="/admin/financeiro/mensalidades">Mensalidades</Link>
+          </Button>
+        }
       />
 
       {feedback ? (
