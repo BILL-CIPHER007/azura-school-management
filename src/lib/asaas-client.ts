@@ -14,6 +14,25 @@ export type AsaasPayment = {
   bankSlipUrl?: string;
   value?: number;
   dueDate?: string;
+  paymentDate?: string;
+  clientPaymentDate?: string;
+  confirmedDate?: string;
+  deleted?: boolean;
+  refunds?: Array<{
+    status?: string;
+    value?: number;
+    dateCreated?: string;
+    transactionReceiptUrl?: string | null;
+  }>;
+};
+
+export type AsaasDeletedPayment = {
+  id: string;
+  deleted: boolean;
+};
+
+export type AsaasRefundResult = AsaasPayment & {
+  requestUrl?: string;
 };
 
 export type AsaasPixQrCode = {
@@ -179,6 +198,12 @@ export async function findAsaasPaymentByExternalReference(externalReference: str
   return result.data?.[0] ?? null;
 }
 
+export async function getAsaasPayment(paymentId: string) {
+  return asaasRequest<AsaasPayment>(`/payments/${encodeURIComponent(paymentId)}`, {
+    method: "GET"
+  });
+}
+
 export async function createAsaasPayment(input: {
   customer: string;
   billingType: AsaasBillingType;
@@ -196,6 +221,22 @@ export async function createAsaasPayment(input: {
       dueDate: input.dueDate,
       description: input.description || undefined,
       externalReference: input.externalReference
+    })
+  });
+}
+
+export async function deleteAsaasPayment(paymentId: string) {
+  return asaasRequest<AsaasDeletedPayment>(`/payments/${encodeURIComponent(paymentId)}`, {
+    method: "DELETE"
+  });
+}
+
+export async function refundAsaasPayment(paymentId: string, input?: { value?: number; description?: string }) {
+  return asaasRequest<AsaasRefundResult>(`/payments/${encodeURIComponent(paymentId)}/refund`, {
+    method: "POST",
+    body: JSON.stringify({
+      value: input?.value,
+      description: input?.description
     })
   });
 }

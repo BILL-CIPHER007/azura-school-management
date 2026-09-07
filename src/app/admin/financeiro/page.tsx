@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CalendarClock, CheckCircle2, CircleDollarSign, ReceiptText } from "lucide-react";
+import { CalendarClock, CheckCircle2, CircleDollarSign, History, ReceiptText } from "lucide-react";
 import {
   cancelChargeAction,
   createChargeAction,
   generateExternalPaymentAction,
   markChargePaidAction,
+  requestChargeRefundAction,
+  syncChargeWithAsaasAction,
   updateChargeAction
 } from "@/app/actions/financial";
 import { AdminEmptyState, AdminMetric, AdminPageHeader, AdminSection, AdminToolbar } from "@/components/admin/admin-ui";
@@ -17,6 +19,9 @@ import { Select } from "@/components/ui/select";
 import { CurrencyInput, FinancialFilters } from "./financial-admin-controls";
 import {
   billingTypeLabel,
+  asaasPaymentStatusLabel,
+  asaasPaymentStatusTone,
+  canRequestRefund,
   chargeStatusLabel,
   chargeStatusTone,
   formatCurrencyBRL,
@@ -48,7 +53,9 @@ const successMessages: Record<string, string> = {
   paga: "Pagamento manual registrado.",
   cancelada: "Cobranca cancelada.",
   pix: "Cobranca Pix gerada no Asaas Sandbox.",
-  boleto: "Boleto gerado no Asaas Sandbox."
+  boleto: "Boleto gerado no Asaas Sandbox.",
+  sincronizada: "Cobranca sincronizada com o Asaas.",
+  reembolso: "Solicitacao de reembolso enviada ao Asaas Sandbox."
 };
 
 const errorMessages: Record<string, string> = {
@@ -74,6 +81,41 @@ function studentLabel(student: Awaited<ReturnType<typeof getAdminFinancialOvervi
   const enrollment = student.enrollments[0];
   if (!enrollment) return student.fullName;
   return `${student.fullName} - ${enrollment.classroom.name} - ${enrollment.academicYear.year}`;
+}
+
+function formatDateTime(value: Date) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(value);
+}
+
+function financialActionLabel(action: string) {
+  const labels: Record<string, string> = {
+    "financial_charge.created": "Cobrança criada",
+    "financial_charge.updated": "Cobrança atualizada",
+    "financial_charge.manual_payment": "Pagamento manual",
+    "financial_charge.canceled": "Cancelamento interno",
+    "financial_charge.external_payment_created": "Pagamento externo gerado",
+    "financial_charge.cancel_requested": "Cancelamento solicitado",
+    "financial_charge.external_canceled": "Cancelamento concluído",
+    "financial_charge.cancel_failed": "Cancelamento falhou",
+    "financial_charge.reconciled": "Sincronização concluída",
+    "financial_charge.reconciliation_failed": "Sincronização falhou",
+    "financial_charge.refund_requested": "Reembolso solicitado",
+    "financial_charge.refund_request_accepted": "Reembolso aceito",
+    "financial_charge.refund_failed": "Reembolso falhou",
+    "financial_charge.refund_blocked": "Reembolso bloqueado",
+    "financial_charge.webhook_paid": "Pagamento recebido",
+    "financial_charge.webhook_refunded": "Reembolso concluído",
+    "financial_charge.webhook_deleted": "Cancelamento recebido"
+  };
+
+  if (action.startsWith("financial_charge.webhook_")) return "Evento Asaas";
+  return labels[action] ?? "Evento financeiro";
 }
 
 export default async function AdminFinancialPage({
@@ -224,6 +266,9 @@ export default async function AdminFinancialPage({
                   const hasExternalPayment = Boolean(charge.externalPaymentId);
                   const editable = charge.status === "PENDING" && !hasExternalPayment;
                   const canGenerateExternalPayment = charge.status === "PENDING" && !hasExternalPayment && charge.externalStatus !== "CREATING";
+                  const canCancel = charge.status === "PENDING";
+                  const canSync = charge.provider === "ASAAS" && hasExternalPayment;
+                  const canRefund = canRequestRefund(charge.status, charge.billingType, charge.externalStatus);
                   return (
                     <tr key={charge.id}>
                       <td>
@@ -241,7 +286,13 @@ export default async function AdminFinancialPage({
                       <td>{formatDate(charge.dueDate)}</td>
                       <td className="font-semibold text-school-navy">{formatCurrencyBRL(charge.amount)}</td>
                       <td>
-                        <Badge variant={chargeStatusTone(displayStatus)}>{chargeStatusLabel(displayStatus)}</Badge>
+                        <div className="space-y-2">
+                          <Badge variant={chargeStatusTone(displayStatus)}>{chargeStatusLabel(displayStatus)}</Badge>
+                          {charge.lastSyncedAt ? (
+                            <p className="text-xs text-text-muted">Sincronizada em {formatDateTime(charge.lastSyncedAt)}</p>
+                          ) : null}
+                          {charge.syncError ? <Badge variant="warning">Sincronização pendente</Badge> : null}
+                        </div>
                       </td>
                       <td>
                         {charge.provider ? (
@@ -249,10 +300,14 @@ export default async function AdminFinancialPage({
                             <Badge variant={charge.externalPaymentId ? "info" : "warning"}>
                               {paymentProviderLabel(charge.provider)}
                             </Badge>
-                            <p className="text-xs text-text-muted">
-                              {billingTypeLabel(charge.billingType)}
-                              {charge.externalStatus ? ` - ${charge.externalStatus}` : ""}
-                            </p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-xs text-text-muted">{billingTypeLabel(charge.billingType)}</span>
+                              {charge.externalStatus ? (
+                                <Badge variant={asaasPaymentStatusTone(charge.externalStatus)}>
+                                  {asaasPaymentStatusLabel(charge.externalStatus)}
+                                </Badge>
+                              ) : null}
+                            </div>
                             {charge.invoiceUrl ? (
                               <Link href={charge.invoiceUrl} target="_blank" rel="noreferrer" className="text-xs font-semibold text-school-primary hover:underline">
                                 Abrir fatura
@@ -325,6 +380,19 @@ export default async function AdminFinancialPage({
                               </form>
                             </>
                           ) : null}
+                          {canSync ? (
+                            <form action={syncChargeWithAsaasAction}>
+                              <input type="hidden" name="chargeId" value={charge.id} />
+                              <ConfirmSubmitButton
+                                message="Sincronizar esta cobranca com o Asaas Sandbox?"
+                                pendingLabel="Sincronizando..."
+                                icon="none"
+                                variant="subtle"
+                              >
+                                Sincronizar
+                              </ConfirmSubmitButton>
+                            </form>
+                          ) : null}
                           {editable ? (
                             <form action={markChargePaidAction}>
                               <input type="hidden" name="chargeId" value={charge.id} />
@@ -338,7 +406,7 @@ export default async function AdminFinancialPage({
                               </ConfirmSubmitButton>
                             </form>
                           ) : null}
-                          {editable ? (
+                          {canCancel ? (
                             <form action={cancelChargeAction}>
                               <input type="hidden" name="chargeId" value={charge.id} />
                               <ConfirmSubmitButton
@@ -350,6 +418,39 @@ export default async function AdminFinancialPage({
                                 Cancelar
                               </ConfirmSubmitButton>
                             </form>
+                          ) : null}
+                          {canRefund ? (
+                            <form action={requestChargeRefundAction}>
+                              <input type="hidden" name="chargeId" value={charge.id} />
+                              <ConfirmSubmitButton
+                                message="Solicitar reembolso total desta cobranca Pix no Asaas Sandbox?"
+                                pendingLabel="Solicitando..."
+                                icon="none"
+                                variant="outline"
+                              >
+                                Solicitar reembolso
+                              </ConfirmSubmitButton>
+                            </form>
+                          ) : null}
+                          {charge.financialEvents.length ? (
+                            <details className="w-full rounded-md border border-border bg-surface px-2 py-1">
+                              <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold text-school-primary">
+                                <History className="h-3.5 w-3.5" />
+                                Histórico
+                              </summary>
+                              <div className="mt-3 space-y-2">
+                                {charge.financialEvents.map((event) => (
+                                  <div key={event.id} className="rounded-md bg-background p-2 text-xs">
+                                    <p className="font-semibold text-school-navy">{financialActionLabel(event.action)}</p>
+                                    <p className="text-text-muted">
+                                      {formatDateTime(event.createdAt)}
+                                      {event.user?.name ? ` - ${event.user.name}` : ""}
+                                    </p>
+                                    {event.message ? <p className="mt-1 whitespace-normal text-text-secondary">{event.message}</p> : null}
+                                  </div>
+                                ))}
+                              </div>
+                            </details>
                           ) : null}
                         </div>
                       </td>

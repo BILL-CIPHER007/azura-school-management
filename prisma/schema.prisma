@@ -40,6 +40,13 @@ enum ExternalBillingType {
   BOLETO
 }
 
+enum FinancialEventSource {
+  ADMIN
+  WEBHOOK
+  RECONCILIATION
+  SYSTEM
+}
+
 enum EnrollmentStatus {
   ACTIVE
   TRANSFERRED
@@ -100,24 +107,26 @@ model School {
   diaryEntries              ClassDiaryEntry[]
   charges                   Charge[]
   auditLogs                 AuditLog[]
+  financialEvents           ChargeFinancialEvent[]
   guardianExternalCustomers GuardianExternalCustomer[]
 }
 
 model User {
-  id           String     @id @default(cuid())
-  schoolId     String
-  name         String
-  email        String
-  passwordHash String
-  role         UserRole
-  status       UserStatus @default(ACTIVE)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-  school       School     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  student      Student?
-  guardian     Guardian?
-  teacher      Teacher?
-  auditLogs    AuditLog[]
+  id              String                 @id @default(cuid())
+  schoolId        String
+  name            String
+  email           String
+  passwordHash    String
+  role            UserRole
+  status          UserStatus             @default(ACTIVE)
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  school          School                 @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  student         Student?
+  guardian        Guardian?
+  teacher         Teacher?
+  auditLogs       AuditLog[]
+  financialEvents ChargeFinancialEvent[]
 
   @@unique([schoolId, email])
   @@index([schoolId, role])
@@ -303,36 +312,63 @@ model Enrollment {
 }
 
 model Charge {
-  id                String               @id @default(cuid())
+  id                String                 @id @default(cuid())
   schoolId          String
   studentId         String
   guardianId        String?
   enrollmentId      String?
   reference         String
   description       String?
-  amount            Decimal              @db.Decimal(10, 2)
+  amount            Decimal                @db.Decimal(10, 2)
   dueDate           DateTime
-  status            ChargeStatus         @default(PENDING)
+  status            ChargeStatus           @default(PENDING)
   paidAt            DateTime?
   canceledAt        DateTime?
   provider          PaymentProvider?
-  externalPaymentId String?              @unique
+  externalPaymentId String?                @unique
   billingType       ExternalBillingType?
   invoiceUrl        String?
   externalStatus    String?
   syncError         String?
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
-  school            School               @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  student           Student              @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  guardian          Guardian?            @relation(fields: [guardianId], references: [id], onDelete: SetNull)
-  enrollment        Enrollment?          @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+  lastSyncedAt      DateTime?
+  refundRequestedAt DateTime?
+  refundedAt        DateTime?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  school            School                 @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  student           Student                @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  guardian          Guardian?              @relation(fields: [guardianId], references: [id], onDelete: SetNull)
+  enrollment        Enrollment?            @relation(fields: [enrollmentId], references: [id], onDelete: SetNull)
+  financialEvents   ChargeFinancialEvent[]
 
   @@index([schoolId, status, dueDate])
   @@index([schoolId, studentId])
   @@index([schoolId, guardianId])
   @@index([schoolId, dueDate])
   @@index([schoolId, provider, externalStatus])
+}
+
+model ChargeFinancialEvent {
+  id                     String               @id @default(cuid())
+  schoolId               String
+  chargeId               String
+  userId                 String?
+  source                 FinancialEventSource
+  action                 String
+  previousStatus         ChargeStatus?
+  nextStatus             ChargeStatus?
+  previousExternalStatus String?
+  nextExternalStatus     String?
+  message                String?
+  externalEventId        String?
+  createdAt              DateTime             @default(now())
+  school                 School               @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  charge                 Charge               @relation(fields: [chargeId], references: [id], onDelete: Cascade)
+  user                   User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([schoolId, chargeId, createdAt])
+  @@index([chargeId, createdAt])
+  @@index([externalEventId])
 }
 
 model TeacherSubject {

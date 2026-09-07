@@ -1,20 +1,28 @@
 import { Prisma } from "@prisma/client";
-import type { ChargeStatus, ExternalBillingType } from "@prisma/client";
+import type { ChargeStatus, ExternalBillingType, FinancialEventSource } from "@prisma/client";
 import {
   AsaasClientError,
   createAsaasCustomer,
   createAsaasPayment,
+  deleteAsaasPayment,
   findAsaasCustomerByExternalReference,
   findAsaasPaymentByExternalReference,
+  getAsaasPayment,
   getAsaasPixQrCode,
+  refundAsaasPayment,
   type AsaasBillingType,
+  type AsaasPayment,
   type AsaasPixQrCode,
   type AsaasWebhookPayload
 } from "@/lib/asaas-client";
 import { hasCommercialFeature } from "@/lib/commercial-plans";
 import {
+  canCancelAsaasPaymentStatus,
+  canRequestRefund,
   dateFromCivilInput,
   getChargeDisplayStatus,
+  nextChargeStatusFromAsaas,
+  normalizeAsaasPaymentStatus,
   parseCurrencyInput,
   toCivilDateKey,
   todayCivilDate
@@ -61,6 +69,38 @@ export class FinancialError extends Error {
 }
 
 type TransactionClient = Prisma.TransactionClient;
+
+type FinancialHistoryInput = {
+  schoolId: string;
+  chargeId: string;
+  userId?: string | null;
+  source: FinancialEventSource;
+  action: string;
+  previousStatus?: ChargeStatus | null;
+  nextStatus?: ChargeStatus | null;
+  previousExternalStatus?: string | null;
+  nextExternalStatus?: string | null;
+  message?: string | null;
+  externalEventId?: string | null;
+};
+
+async function recordFinancialEvent(tx: TransactionClient | typeof prisma, input: FinancialHistoryInput) {
+  await tx.chargeFinancialEvent.create({
+    data: {
+      schoolId: input.schoolId,
+      chargeId: input.chargeId,
+      userId: input.userId ?? null,
+      source: input.source,
+      action: input.action,
+      previousStatus: input.previousStatus ?? null,
+      nextStatus: input.nextStatus ?? null,
+      previousExternalStatus: input.previousExternalStatus ?? null,
+      nextExternalStatus: input.nextExternalStatus ?? null,
+      message: input.message?.slice(0, 240) ?? null,
+      externalEventId: input.externalEventId ?? null
+    }
+  });
+}
 
 export async function getFinancialFeatureAccess(schoolId: string) {
   const school = await prisma.school.findFirstOrThrow({
@@ -163,6 +203,81 @@ function summarizeIntegrationError(error: unknown) {
   if (error instanceof FinancialError || error instanceof AsaasClientError) return error.message.slice(0, 240);
   if (error instanceof Error) return error.message.slice(0, 240);
   return "Nao foi possivel concluir a integracao externa.";
+}
+
+function parseAsaasPaymentObjectDate(payment: AsaasPayment) {
+  const value = payment.paymentDate ?? payment.clientPaymentDate ?? payment.confirmedDate;
+  if (!value) return new Date();
+
+  const parsed = dateFromCivilInput(value);
+  const fallback = new Date(value);
+  if (parsed) return parsed;
+  return Number.isNaN(fallback.getTime()) ? new Date() : fallback;
+}
+
+async function applyAsaasPaymentSnapshot(
+  tx: TransactionClient,
+  input: {
+    charge: {
+      id: string;
+      schoolId: string;
+      status: ChargeStatus;
+      externalStatus: string | null;
+      paidAt?: Date | null;
+      canceledAt?: Date | null;
+      refundedAt?: Date | null;
+    };
+    payment: AsaasPayment;
+    source: FinancialEventSource;
+    userId?: string | null;
+    action: string;
+    message?: string | null;
+    externalEventId?: string | null;
+  }
+) {
+  const externalStatus = input.payment.deleted ? "DELETED" : input.payment.status ?? null;
+  const nextStatus = nextChargeStatusFromAsaas(input.charge.status, externalStatus);
+  const normalized = normalizeAsaasPaymentStatus(externalStatus);
+  const updateData: Prisma.ChargeUpdateInput = {
+    externalStatus,
+    lastSyncedAt: new Date(),
+    syncError: null
+  };
+
+  if (nextStatus) {
+    updateData.status = nextStatus;
+    if (nextStatus === "PAID" && !input.charge.paidAt) updateData.paidAt = parseAsaasPaymentObjectDate(input.payment);
+    if (nextStatus === "CANCELED" && !input.charge.canceledAt) updateData.canceledAt = new Date();
+    if (nextStatus === "REFUNDED" && !input.charge.refundedAt) updateData.refundedAt = new Date();
+  }
+
+  if (normalized === "REFUND_IN_PROGRESS" || normalized === "REFUND_REQUESTED") {
+    updateData.refundRequestedAt = new Date();
+  }
+
+  await tx.charge.update({
+    where: { id: input.charge.id },
+    data: updateData
+  });
+
+  await recordFinancialEvent(tx, {
+    schoolId: input.charge.schoolId,
+    chargeId: input.charge.id,
+    userId: input.userId ?? null,
+    source: input.source,
+    action: input.action,
+    previousStatus: input.charge.status,
+    nextStatus: nextStatus ?? input.charge.status,
+    previousExternalStatus: input.charge.externalStatus,
+    nextExternalStatus: externalStatus,
+    message: input.message ?? "Sincronizacao com Asaas concluida.",
+    externalEventId: input.externalEventId ?? null
+  });
+
+  return {
+    nextStatus: nextStatus ?? input.charge.status,
+    externalStatus
+  };
 }
 
 async function upsertExternalCustomerMapping(schoolId: string, guardianId: string, externalCustomerId: string) {
@@ -277,6 +392,16 @@ export async function createCharge(schoolId: string, userId: string, input: Char
       }
     });
 
+    await recordFinancialEvent(tx, {
+      schoolId,
+      userId,
+      chargeId: charge.id,
+      source: "ADMIN",
+      action: "financial_charge.created",
+      nextStatus: "PENDING",
+      message: "Cobranca criada pela secretaria."
+    });
+
     return charge.id;
   });
 }
@@ -343,6 +468,7 @@ export async function generateExternalPayment(
           billingType,
           invoiceUrl: payment.invoiceUrl ?? payment.bankSlipUrl ?? null,
           externalStatus: payment.status ?? null,
+          lastSyncedAt: new Date(),
           syncError: null
         }
       });
@@ -356,6 +482,19 @@ export async function generateExternalPayment(
           entityId: charge.id
         }
       });
+
+      await recordFinancialEvent(tx, {
+        schoolId,
+        userId,
+        chargeId: charge.id,
+        source: "ADMIN",
+        action: "financial_charge.external_payment_created",
+        previousStatus: charge.status,
+        nextStatus: "PENDING",
+        previousExternalStatus: charge.externalStatus,
+        nextExternalStatus: payment.status ?? null,
+        message: `${billingType} gerado no Asaas Sandbox.`
+      });
     });
 
     return charge.id;
@@ -368,6 +507,19 @@ export async function generateExternalPayment(
         externalStatus: "ERROR",
         syncError: summarizeIntegrationError(error)
       }
+    });
+
+    await recordFinancialEvent(prisma, {
+      schoolId,
+      userId,
+      chargeId: charge.id,
+      source: "ADMIN",
+      action: "financial_charge.external_payment_failed",
+      previousStatus: charge.status,
+      nextStatus: charge.status,
+      previousExternalStatus: charge.externalStatus,
+      nextExternalStatus: "ERROR",
+      message: summarizeIntegrationError(error)
     });
 
     throw new FinancialError("asaas", summarizeIntegrationError(error));
@@ -405,6 +557,19 @@ export async function updateCharge(schoolId: string, userId: string, input: Char
         entityId: charge.id
       }
     });
+
+    await recordFinancialEvent(tx, {
+      schoolId,
+      userId,
+      chargeId: charge.id,
+      source: "ADMIN",
+      action: "financial_charge.updated",
+      previousStatus: charge.status,
+      nextStatus: charge.status,
+      previousExternalStatus: charge.externalStatus,
+      nextExternalStatus: charge.externalStatus,
+      message: "Dados internos da cobranca atualizados."
+    });
   });
 }
 
@@ -433,35 +598,329 @@ export async function markChargePaid(schoolId: string, userId: string, chargeId:
         entityId: charge.id
       }
     });
+
+    await recordFinancialEvent(tx, {
+      schoolId,
+      userId,
+      chargeId: charge.id,
+      source: "ADMIN",
+      action: "financial_charge.manual_payment",
+      previousStatus: charge.status,
+      nextStatus: "PAID",
+      previousExternalStatus: charge.externalStatus,
+      nextExternalStatus: charge.externalStatus,
+      message: "Pagamento manual registrado pela secretaria."
+    });
   });
 }
 
 export async function cancelCharge(schoolId: string, userId: string, chargeId: string) {
-  return prisma.$transaction(async (tx) => {
-    await assertFinancialFeature(schoolId, tx);
-    const charge = await tx.charge.findFirst({ where: { id: chargeId, schoolId } });
+  await assertFinancialFeature(schoolId);
+  const charge = await prisma.charge.findFirst({ where: { id: chargeId, schoolId } });
 
-    if (!charge) throw new FinancialError("cobranca", "Cobranca nao encontrada.");
-    if (charge.status !== "PENDING") throw new FinancialError("status", "Somente cobrancas pendentes podem ser canceladas.");
-    if (charge.externalPaymentId) {
-      throw new FinancialError("status", "Cobrancas integradas ao Asaas nao podem ser canceladas apenas localmente.");
-    }
+  if (!charge) throw new FinancialError("cobranca", "Cobranca nao encontrada.");
+  if (charge.status !== "PENDING") throw new FinancialError("status", "Somente cobrancas pendentes podem ser canceladas.");
 
-    await tx.charge.update({
-      where: { id: charge.id },
-      data: { status: "CANCELED", canceledAt: new Date() }
-    });
+  if (!charge.externalPaymentId) {
+    return prisma.$transaction(async (tx) => {
+      await tx.charge.update({
+        where: { id: charge.id },
+        data: { status: "CANCELED", canceledAt: new Date() }
+      });
 
-    await tx.auditLog.create({
-      data: {
+      await tx.auditLog.create({
+        data: {
+          schoolId,
+          userId,
+          action: "financial_charge.canceled",
+          entity: "Charge",
+          entityId: charge.id
+        }
+      });
+
+      await recordFinancialEvent(tx, {
         schoolId,
         userId,
+        chargeId: charge.id,
+        source: "ADMIN",
         action: "financial_charge.canceled",
-        entity: "Charge",
-        entityId: charge.id
-      }
+        previousStatus: charge.status,
+        nextStatus: "CANCELED",
+        previousExternalStatus: charge.externalStatus,
+        nextExternalStatus: charge.externalStatus,
+        message: "Cobranca interna cancelada pela secretaria."
+      });
     });
+  }
+
+  let externalPayment: AsaasPayment;
+  try {
+    externalPayment = await getAsaasPayment(charge.externalPaymentId);
+  } catch (error) {
+    const message = summarizeIntegrationError(error);
+    await prisma.$transaction(async (tx) => {
+      await tx.charge.update({ where: { id: charge.id }, data: { syncError: message } });
+      await recordFinancialEvent(tx, {
+        schoolId,
+        userId,
+        chargeId: charge.id,
+        source: "ADMIN",
+        action: "financial_charge.cancel_failed",
+        previousStatus: charge.status,
+        nextStatus: charge.status,
+        previousExternalStatus: charge.externalStatus,
+        nextExternalStatus: charge.externalStatus,
+        message
+      });
+    });
+    throw new FinancialError("asaas", message);
+  }
+
+  if (!canCancelAsaasPaymentStatus(externalPayment.status)) {
+    await prisma.$transaction(async (tx) => {
+      await applyAsaasPaymentSnapshot(tx, {
+        charge,
+        payment: externalPayment,
+        source: "ADMIN",
+        userId,
+        action: "financial_charge.cancel_blocked",
+        message: "Cancelamento bloqueado porque o status atual no Asaas nao permite a operacao."
+      });
+    });
+    throw new FinancialError("status", "O status atual no Asaas nao permite cancelar esta cobranca.");
+  }
+
+  await recordFinancialEvent(prisma, {
+    schoolId,
+    userId,
+    chargeId: charge.id,
+    source: "ADMIN",
+    action: "financial_charge.cancel_requested",
+    previousStatus: charge.status,
+    nextStatus: charge.status,
+    previousExternalStatus: charge.externalStatus,
+    nextExternalStatus: externalPayment.status ?? null,
+    message: "Cancelamento solicitado ao Asaas Sandbox."
   });
+
+  try {
+    const deletedPayment = await deleteAsaasPayment(charge.externalPaymentId);
+    if (!deletedPayment.deleted) throw new FinancialError("asaas", "O Asaas nao confirmou a remocao da cobranca.");
+
+    await prisma.$transaction(async (tx) => {
+      await tx.charge.update({
+        where: { id: charge.id },
+        data: {
+          status: "CANCELED",
+          canceledAt: new Date(),
+          externalStatus: "DELETED",
+          lastSyncedAt: new Date(),
+          syncError: null
+        }
+      });
+
+      await tx.auditLog.create({
+        data: {
+          schoolId,
+          userId,
+          action: "financial_charge.external_canceled",
+          entity: "Charge",
+          entityId: charge.id
+        }
+      });
+
+      await recordFinancialEvent(tx, {
+        schoolId,
+        userId,
+        chargeId: charge.id,
+        source: "ADMIN",
+        action: "financial_charge.external_canceled",
+        previousStatus: charge.status,
+        nextStatus: "CANCELED",
+        previousExternalStatus: charge.externalStatus,
+        nextExternalStatus: "DELETED",
+        message: "Cobranca removida no Asaas Sandbox e cancelada na Azura."
+      });
+    });
+  } catch (error) {
+    const message = summarizeIntegrationError(error);
+    await prisma.$transaction(async (tx) => {
+      await tx.charge.update({ where: { id: charge.id }, data: { syncError: message } });
+      await recordFinancialEvent(tx, {
+        schoolId,
+        userId,
+        chargeId: charge.id,
+        source: "ADMIN",
+        action: "financial_charge.cancel_failed",
+        previousStatus: charge.status,
+        nextStatus: charge.status,
+        previousExternalStatus: charge.externalStatus,
+        nextExternalStatus: externalPayment.status ?? null,
+        message
+      });
+    });
+    throw new FinancialError("asaas", message);
+  }
+}
+
+export async function syncChargeWithAsaas(schoolId: string, userId: string, chargeId: string) {
+  await assertFinancialFeature(schoolId);
+  const charge = await prisma.charge.findFirst({ where: { id: chargeId, schoolId } });
+
+  if (!charge) throw new FinancialError("cobranca", "Cobranca nao encontrada.");
+  if (charge.provider !== "ASAAS" || !charge.externalPaymentId) {
+    throw new FinancialError("status", "Somente cobrancas integradas ao Asaas podem ser sincronizadas.");
+  }
+
+  try {
+    const payment = await getAsaasPayment(charge.externalPaymentId);
+
+    await prisma.$transaction(async (tx) => {
+      await applyAsaasPaymentSnapshot(tx, {
+        charge,
+        payment,
+        source: "RECONCILIATION",
+        userId,
+        action: "financial_charge.reconciled",
+        message: "Conciliacao individual executada pela secretaria."
+      });
+
+      await tx.auditLog.create({
+        data: {
+          schoolId,
+          userId,
+          action: "financial_charge.reconciled",
+          entity: "Charge",
+          entityId: charge.id
+        }
+      });
+    });
+  } catch (error) {
+    const message = summarizeIntegrationError(error);
+    await prisma.$transaction(async (tx) => {
+      await tx.charge.update({
+        where: { id: charge.id },
+        data: { syncError: message }
+      });
+      await recordFinancialEvent(tx, {
+        schoolId,
+        userId,
+        chargeId: charge.id,
+        source: "RECONCILIATION",
+        action: "financial_charge.reconciliation_failed",
+        previousStatus: charge.status,
+        nextStatus: charge.status,
+        previousExternalStatus: charge.externalStatus,
+        nextExternalStatus: charge.externalStatus,
+        message
+      });
+    });
+    throw new FinancialError("asaas", message);
+  }
+}
+
+export async function requestChargeRefund(schoolId: string, userId: string, chargeId: string) {
+  await assertFinancialFeature(schoolId);
+  const charge = await prisma.charge.findFirst({ where: { id: chargeId, schoolId } });
+
+  if (!charge) throw new FinancialError("cobranca", "Cobranca nao encontrada.");
+  if (charge.provider !== "ASAAS" || !charge.externalPaymentId) {
+    throw new FinancialError("status", "Somente cobrancas integradas ao Asaas podem ser reembolsadas.");
+  }
+  if (!canRequestRefund(charge.status, charge.billingType, charge.externalStatus)) {
+    throw new FinancialError("status", "Esta cobranca nao esta em um estado seguro para solicitar reembolso.");
+  }
+
+  try {
+    const payment = await getAsaasPayment(charge.externalPaymentId);
+    if (!canRequestRefund(charge.status, charge.billingType, payment.status)) {
+      await prisma.$transaction(async (tx) => {
+        await applyAsaasPaymentSnapshot(tx, {
+          charge,
+          payment,
+          source: "ADMIN",
+          userId,
+          action: "financial_charge.refund_blocked",
+          message: "Reembolso bloqueado porque o status atual no Asaas nao permite a operacao."
+        });
+      });
+      throw new FinancialError("status", "O status atual no Asaas nao permite solicitar reembolso.");
+    }
+
+    await recordFinancialEvent(prisma, {
+      schoolId,
+      userId,
+      chargeId: charge.id,
+      source: "ADMIN",
+      action: "financial_charge.refund_requested",
+      previousStatus: charge.status,
+      nextStatus: charge.status,
+      previousExternalStatus: charge.externalStatus,
+      nextExternalStatus: payment.status ?? null,
+      message: "Reembolso total solicitado ao Asaas Sandbox."
+    });
+
+    const refund = await refundAsaasPayment(charge.externalPaymentId, {
+      description: `Reembolso da cobranca ${charge.reference}`
+    });
+
+    await prisma.$transaction(async (tx) => {
+      await tx.charge.update({
+        where: { id: charge.id },
+        data: {
+          externalStatus: refund.status ?? "REFUND_REQUESTED",
+          refundRequestedAt: new Date(),
+          lastSyncedAt: new Date(),
+          syncError: null
+        }
+      });
+
+      await tx.auditLog.create({
+        data: {
+          schoolId,
+          userId,
+          action: "financial_charge.refund_requested",
+          entity: "Charge",
+          entityId: charge.id
+        }
+      });
+
+      await recordFinancialEvent(tx, {
+        schoolId,
+        userId,
+        chargeId: charge.id,
+        source: "ADMIN",
+        action: "financial_charge.refund_request_accepted",
+        previousStatus: charge.status,
+        nextStatus: charge.status,
+        previousExternalStatus: charge.externalStatus,
+        nextExternalStatus: refund.status ?? "REFUND_REQUESTED",
+        message: "Solicitacao de reembolso aceita pelo Asaas Sandbox."
+      });
+    });
+  } catch (error) {
+    if (error instanceof FinancialError) throw error;
+    const message = summarizeIntegrationError(error);
+    await prisma.$transaction(async (tx) => {
+      await tx.charge.update({
+        where: { id: charge.id },
+        data: { syncError: message }
+      });
+      await recordFinancialEvent(tx, {
+        schoolId,
+        userId,
+        chargeId: charge.id,
+        source: "ADMIN",
+        action: "financial_charge.refund_failed",
+        previousStatus: charge.status,
+        nextStatus: charge.status,
+        previousExternalStatus: charge.externalStatus,
+        nextExternalStatus: charge.externalStatus,
+        message
+      });
+    });
+    throw new FinancialError("asaas", message);
+  }
 }
 
 export async function getAdminFinancialOverview(
@@ -488,7 +947,12 @@ export async function getAdminFinancialOverview(
       include: {
         student: true,
         guardian: true,
-        enrollment: { include: { classroom: true, academicYear: true } }
+        enrollment: { include: { classroom: true, academicYear: true } },
+        financialEvents: {
+          include: { user: { select: { name: true } } },
+          orderBy: { createdAt: "desc" },
+          take: 6
+        }
       },
       orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
       take: 100
@@ -582,14 +1046,18 @@ export async function getGuardianFinancialPortal(schoolId: string, userId: strin
   const selectedStudent = children.find((student) => student.id === selectedStudentId) ?? children[0] ?? null;
 
   const charges = selectedStudent
-    ? await prisma.charge.findMany({
-        where: { schoolId, studentId: selectedStudent.id },
-        include: {
-          student: true,
-          enrollment: { include: { classroom: true, academicYear: true } }
-        },
-        orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }]
-      })
+      ? await prisma.charge.findMany({
+          where: { schoolId, studentId: selectedStudent.id },
+          include: {
+            student: true,
+            enrollment: { include: { classroom: true, academicYear: true } },
+            financialEvents: {
+              orderBy: { createdAt: "desc" },
+              take: 4
+            }
+          },
+          orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }]
+        })
     : [];
 
   const pixInstructions = Object.fromEntries(
@@ -655,62 +1123,91 @@ export async function processAsaasWebhook(payload: AsaasWebhookPayload) {
 
     const charge = await prisma.charge.findUnique({
       where: { externalPaymentId },
-      select: { id: true, schoolId: true, status: true }
+      select: {
+        id: true,
+        schoolId: true,
+        status: true,
+        externalStatus: true,
+        paidAt: true,
+        canceledAt: true,
+        refundedAt: true
+      }
     });
 
     if (!charge) {
       throw new Error("Pagamento externo nao encontrado em cobrancas Azura.");
     }
 
-    if (eventType === "PAYMENT_CONFIRMED" || eventType === "PAYMENT_RECEIVED") {
+    const externalStatus = payload.payment?.status ?? eventType;
+    const normalizedStatus = normalizeAsaasPaymentStatus(externalStatus);
+    const nextStatus = nextChargeStatusFromAsaas(charge.status, externalStatus);
+
+    if (normalizedStatus === "REFUND_DENIED") {
       await prisma.$transaction(async (tx) => {
         await tx.charge.update({
           where: { id: charge.id },
           data: {
-            status: "PAID",
-            paidAt: charge.status === "PAID" ? undefined : parseAsaasPaymentDate(payload),
-            externalStatus: payload.payment?.status ?? eventType,
-            syncError: null
+            externalStatus,
+            lastSyncedAt: new Date(),
+            syncError: "Reembolso negado pelo Asaas."
           }
         });
 
-        await tx.auditLog.create({
-          data: {
-            schoolId: charge.schoolId,
-            userId: null,
-            action: "financial_charge.webhook_paid",
-            entity: "Charge",
-            entityId: charge.id
-          }
+        await recordFinancialEvent(tx, {
+          schoolId: charge.schoolId,
+          chargeId: charge.id,
+          source: "WEBHOOK",
+          action: "financial_charge.webhook_refund_denied",
+          previousStatus: charge.status,
+          nextStatus: charge.status,
+          previousExternalStatus: charge.externalStatus,
+          nextExternalStatus: externalStatus,
+          message: "Reembolso negado pelo Asaas.",
+          externalEventId
         });
       });
-    } else if (eventType === "PAYMENT_REFUNDED") {
+    } else {
       await prisma.$transaction(async (tx) => {
         await tx.charge.update({
           where: { id: charge.id },
           data: {
-            status: "REFUNDED",
-            externalStatus: payload.payment?.status ?? eventType,
+            status: nextStatus ?? undefined,
+            paidAt: nextStatus === "PAID" && !charge.paidAt ? parseAsaasPaymentDate(payload) : undefined,
+            canceledAt: nextStatus === "CANCELED" && !charge.canceledAt ? new Date() : undefined,
+            refundedAt: nextStatus === "REFUNDED" && !charge.refundedAt ? new Date() : undefined,
+            refundRequestedAt:
+              normalizedStatus === "REFUND_IN_PROGRESS" || normalizedStatus === "REFUND_REQUESTED"
+                ? new Date()
+                : undefined,
+            externalStatus,
+            lastSyncedAt: new Date(),
             syncError: null
           }
         });
 
-        await tx.auditLog.create({
-          data: {
-            schoolId: charge.schoolId,
-            userId: null,
-            action: "financial_charge.webhook_refunded",
-            entity: "Charge",
-            entityId: charge.id
-          }
+        await recordFinancialEvent(tx, {
+          schoolId: charge.schoolId,
+          chargeId: charge.id,
+          source: "WEBHOOK",
+          action: `financial_charge.webhook_${normalizedStatus.toLowerCase()}`,
+          previousStatus: charge.status,
+          nextStatus: nextStatus ?? charge.status,
+          previousExternalStatus: charge.externalStatus,
+          nextExternalStatus: externalStatus,
+          message: "Evento recebido pelo webhook Asaas.",
+          externalEventId
         });
-      });
-    } else if (eventType === "PAYMENT_OVERDUE") {
-      await prisma.charge.update({
-        where: { id: charge.id },
-        data: {
-          externalStatus: payload.payment?.status ?? eventType,
-          syncError: null
+
+        if (nextStatus && nextStatus !== charge.status) {
+          await tx.auditLog.create({
+            data: {
+              schoolId: charge.schoolId,
+              userId: null,
+              action: `financial_charge.webhook_${nextStatus.toLowerCase()}`,
+              entity: "Charge",
+              entityId: charge.id
+            }
+          });
         }
       });
     }

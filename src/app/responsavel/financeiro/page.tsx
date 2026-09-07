@@ -5,6 +5,8 @@ import { StudentSwitcher } from "@/components/guardian/student-switcher";
 import { GuardianEmptyState, GuardianMetric, GuardianPageHeader, GuardianSection } from "@/components/guardian/guardian-ui";
 import { Badge } from "@/components/ui/badge";
 import {
+  asaasPaymentStatusLabel,
+  asaasPaymentStatusTone,
   billingTypeLabel,
   chargeStatusLabel,
   chargeStatusTone,
@@ -17,6 +19,24 @@ import { formatDate } from "@/lib/utils";
 import { FinancialError, getGuardianFinancialPortal } from "@/services/financial";
 
 export const dynamic = "force-dynamic";
+
+function formatDateTime(value: Date) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(value);
+}
+
+function financialActionLabel(action: string) {
+  if (action.includes("refund")) return "Reembolso";
+  if (action.includes("cancel")) return "Cancelamento";
+  if (action.includes("webhook") || action.includes("reconciled")) return "Atualização de status";
+  if (action.includes("external_payment")) return "Pagamento emitido";
+  return "Registro financeiro";
+}
 
 export default async function GuardianFinancialPage({
   searchParams
@@ -103,12 +123,25 @@ export default async function GuardianFinancialPage({
                         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-text-muted">
                           <Badge variant="info">{paymentProviderLabel(charge.provider)}</Badge>
                           <span>{billingTypeLabel(charge.billingType)}</span>
-                          {charge.externalStatus ? <span>Status externo: {charge.externalStatus}</span> : null}
+                          {charge.externalStatus ? (
+                            <Badge variant={asaasPaymentStatusTone(charge.externalStatus)}>
+                              {asaasPaymentStatusLabel(charge.externalStatus)}
+                            </Badge>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>
                     <strong className="text-2xl text-school-navy">{formatCurrencyBRL(charge.amount)}</strong>
                   </div>
+                  {charge.canceledAt || charge.refundRequestedAt || charge.refundedAt ? (
+                    <div className="mt-4 rounded-md border border-border bg-surface p-3 text-sm text-text-secondary">
+                      {charge.canceledAt ? <p>Cobrança cancelada em {formatDate(charge.canceledAt)}.</p> : null}
+                      {charge.refundRequestedAt && !charge.refundedAt ? (
+                        <p>Reembolso solicitado em {formatDate(charge.refundRequestedAt)}. A escola acompanhará a conclusão pelo Asaas.</p>
+                      ) : null}
+                      {charge.refundedAt ? <p>Reembolso concluído em {formatDate(charge.refundedAt)}.</p> : null}
+                    </div>
+                  ) : null}
                   {charge.invoiceUrl ? (
                     <div className="mt-4 rounded-md border border-border bg-surface p-3">
                       <p className="text-sm font-semibold text-school-navy">Fatura oficial</p>
@@ -142,6 +175,20 @@ export default async function GuardianFinancialPage({
                   ) : pixInstruction?.error ? (
                     <div className="mt-4 rounded-md border border-warning/20 bg-warning-soft p-3 text-sm text-warning">
                       {pixInstruction.error}
+                    </div>
+                  ) : null}
+                  {charge.financialEvents.length ? (
+                    <div className="mt-4 rounded-md border border-border bg-surface p-3">
+                      <p className="text-sm font-semibold text-school-navy">Histórico resumido</p>
+                      <div className="mt-3 space-y-2">
+                        {charge.financialEvents.map((event) => (
+                          <div key={event.id} className="text-xs text-text-secondary">
+                            <span className="font-semibold text-school-navy">{financialActionLabel(event.action)}</span>
+                            <span className="text-text-muted"> - {formatDateTime(event.createdAt)}</span>
+                            {event.message ? <p className="mt-1">{event.message}</p> : null}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ) : null}
                 </article>

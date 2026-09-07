@@ -2,9 +2,13 @@ import assert from "node:assert/strict";
 import { hasCommercialFeature } from "../src/lib/commercial-plans";
 import {
   chargeStatusLabel,
+  asaasPaymentStatusLabel,
+  canCancelAsaasPaymentStatus,
+  canRequestRefund,
   dateFromCivilInput,
   formatCurrencyBRL,
   getChargeDisplayStatus,
+  nextChargeStatusFromAsaas,
   parseCurrencyInput,
   toCivilDateKey
 } from "../src/lib/financial-core";
@@ -33,6 +37,15 @@ assert.equal(getChargeDisplayStatus("PAID", new Date("2026-09-01T12:00:00.000Z")
 assert.equal(getChargeDisplayStatus("CANCELED", new Date("2026-09-01T12:00:00.000Z"), now), "CANCELED");
 
 assert.equal(chargeStatusLabel("OVERDUE"), "Vencido");
+assert.equal(asaasPaymentStatusLabel("PAYMENT_RECEIVED"), "Recebido no Asaas");
+assert.equal(canCancelAsaasPaymentStatus("PENDING"), true);
+assert.equal(canCancelAsaasPaymentStatus("RECEIVED"), false);
+assert.equal(canRequestRefund("PAID", "PIX", "RECEIVED"), true);
+assert.equal(canRequestRefund("PAID", "BOLETO", "RECEIVED"), false);
+assert.equal(nextChargeStatusFromAsaas("PENDING", "PAYMENT_RECEIVED"), "PAID");
+assert.equal(nextChargeStatusFromAsaas("PAID", "PAYMENT_REFUNDED"), "REFUNDED");
+assert.equal(nextChargeStatusFromAsaas("PENDING", "PAYMENT_DELETED"), "CANCELED");
+assert.equal(nextChargeStatusFromAsaas("PAID", "PAYMENT_DELETED"), null);
 assert.equal(formatCurrencyBRL("1250.50").replace(/\s/u, " "), "R$ 1.250,50");
 
 console.log("Financial core validated successfully.");

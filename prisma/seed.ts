@@ -95,6 +95,7 @@ function score(seed: number, offset: number) {
 }
 
 async function resetDatabase() {
+  await prisma.chargeFinancialEvent.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.attendance.deleteMany();
   await prisma.grade.deleteMany();

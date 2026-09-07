@@ -10,6 +10,8 @@ import {
   FinancialError,
   generateExternalPayment,
   markChargePaid,
+  requestChargeRefund,
+  syncChargeWithAsaas,
   updateCharge
 } from "@/services/financial";
 
@@ -104,6 +106,32 @@ export async function cancelChargeAction(formData: FormData) {
     await cancelCharge(session.schoolId, session.id, chargeId);
     revalidateFinancialPaths();
     redirectWithStatus("/admin/financeiro", { sucesso: "cancelada" });
+  } catch (error) {
+    redirectWithStatus("/admin/financeiro", { erro: financialErrorCode(error) });
+  }
+}
+
+export async function syncChargeWithAsaasAction(formData: FormData) {
+  const session = await requireSession(["ADMIN"]);
+  const chargeId = z.string().min(1).parse(formData.get("chargeId"));
+
+  try {
+    await syncChargeWithAsaas(session.schoolId, session.id, chargeId);
+    revalidateFinancialPaths();
+    redirectWithStatus("/admin/financeiro", { sucesso: "sincronizada" });
+  } catch (error) {
+    redirectWithStatus("/admin/financeiro", { erro: financialErrorCode(error) });
+  }
+}
+
+export async function requestChargeRefundAction(formData: FormData) {
+  const session = await requireSession(["ADMIN"]);
+  const chargeId = z.string().min(1).parse(formData.get("chargeId"));
+
+  try {
+    await requestChargeRefund(session.schoolId, session.id, chargeId);
+    revalidateFinancialPaths();
+    redirectWithStatus("/admin/financeiro", { sucesso: "reembolso" });
   } catch (error) {
     redirectWithStatus("/admin/financeiro", { erro: financialErrorCode(error) });
   }
