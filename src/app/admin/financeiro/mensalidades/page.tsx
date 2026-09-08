@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import type { ReactNode } from "react";
 import { CalendarClock, CheckCircle2, CircleDollarSign, ReceiptText, UsersRound } from "lucide-react";
 import {
   emitBillingBatchPaymentsAction,
@@ -48,6 +49,30 @@ type RecurringBillingAdminData = Awaited<ReturnType<typeof getRecurringBillingAd
 type BillingRuleRow = RecurringBillingAdminData["rules"][number];
 type BillingBatchRow = RecurringBillingAdminData["batches"][number];
 type BillingPreviewRow = NonNullable<RecurringBillingAdminData["preview"]>["rows"][number];
+
+function Field({
+  id,
+  label,
+  help,
+  className,
+  children
+}: {
+  id: string;
+  label: string;
+  help?: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className={className}>
+      <label htmlFor={id} className="mb-1.5 block text-xs font-medium text-text-muted">
+        {label}
+      </label>
+      {children}
+      {help ? <p id={`${id}-help`} className="mt-1.5 text-xs leading-5 text-text-muted">{help}</p> : null}
+    </div>
+  );
+}
 
 function currentMonthValue() {
   const now = new Date();
@@ -132,53 +157,101 @@ export default async function AdminRecurringBillingPage({
       >
         <form action={saveBillingRuleAction} className="grid gap-3 lg:grid-cols-[1.1fr_160px_130px_1fr]">
           {selectedRule ? <input type="hidden" name="ruleId" value={selectedRule.id} /> : null}
-          <Input name="name" placeholder="Nome da mensalidade" defaultValue={selectedRule?.name ?? ""} required />
-          <CurrencyInput name="amount" defaultValue={selectedRule?.amount.toString()} required />
-          <Input
-            name="dueDay"
-            type="number"
-            min={1}
-            max={31}
-            placeholder="Dia"
-            defaultValue={selectedRule?.dueDay.toString() ?? ""}
-            required
-          />
-          <Select name="classroomId" defaultValue={selectedRule?.classroomId ?? ""} aria-label="Publico-alvo">
-            <option value="">Todos os alunos ativos</option>
-            {data.classrooms.map((classroom) => (
-              <option key={classroom.id} value={classroom.id}>
-                {classroom.name} - {classroom.academicYear.year}
-              </option>
-            ))}
-          </Select>
-          <Input name="startsOn" type="date" defaultValue={formatDateInput(selectedRule?.startsOn)} aria-label="Periodo inicial" />
-          <Input name="endsOn" type="date" defaultValue={formatDateInput(selectedRule?.endsOn)} aria-label="Periodo final" />
-          <label className="flex h-10 items-center gap-2 rounded-md border border-input bg-surface px-3 text-sm text-text-secondary shadow-sm">
-            <input type="checkbox" name="isActive" defaultChecked={selectedRule?.isActive ?? true} className="h-4 w-4" />
-            Regra ativa
-          </label>
-          <Button type="submit">{selectedRule ? "Salvar regra" : "Criar regra"}</Button>
-          <textarea
-            name="notes"
-            placeholder="Observacao opcional para as cobrancas geradas"
-            defaultValue={selectedRule?.notes ?? ""}
-            className="min-h-20 rounded-md border border-input bg-surface px-3 py-2 text-sm shadow-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 lg:col-span-4"
-          />
+          <Field id="billing-rule-name" label="Nome da regra">
+            <Input
+              id="billing-rule-name"
+              name="name"
+              placeholder="Nome da mensalidade"
+              defaultValue={selectedRule?.name ?? ""}
+              required
+            />
+          </Field>
+          <Field id="billing-rule-amount" label="Valor mensal">
+            <CurrencyInput id="billing-rule-amount" name="amount" defaultValue={selectedRule?.amount.toString()} required />
+          </Field>
+          <Field
+            id="billing-rule-due-day"
+            label="Dia do vencimento"
+            help="Se o mes tiver menos dias, o sistema usa o ultimo dia valido."
+          >
+            <Input
+              id="billing-rule-due-day"
+              name="dueDay"
+              type="number"
+              min={1}
+              max={31}
+              placeholder="Dia"
+              defaultValue={selectedRule?.dueDay.toString() ?? ""}
+              required
+              aria-describedby="billing-rule-due-day-help"
+            />
+          </Field>
+          <Field id="billing-rule-classroom" label="Turma">
+            <Select id="billing-rule-classroom" name="classroomId" defaultValue={selectedRule?.classroomId ?? ""}>
+              <option value="">Todos os alunos ativos</option>
+              {data.classrooms.map((classroom) => (
+                <option key={classroom.id} value={classroom.id}>
+                  {classroom.name} - {classroom.academicYear.year}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field id="billing-rule-starts-on" label="Inicio da vigencia">
+            <Input id="billing-rule-starts-on" name="startsOn" type="date" defaultValue={formatDateInput(selectedRule?.startsOn)} />
+          </Field>
+          <Field id="billing-rule-ends-on" label="Fim da vigencia">
+            <Input id="billing-rule-ends-on" name="endsOn" type="date" defaultValue={formatDateInput(selectedRule?.endsOn)} />
+          </Field>
+          <Field id="billing-rule-active" label="Status">
+            <label
+              htmlFor="billing-rule-active"
+              className="flex h-10 items-center gap-2 rounded-md border border-input bg-surface px-3 text-sm text-text-secondary shadow-sm"
+            >
+              <input
+                id="billing-rule-active"
+                type="checkbox"
+                name="isActive"
+                defaultChecked={selectedRule?.isActive ?? true}
+                className="h-4 w-4"
+              />
+              Regra ativa
+            </label>
+          </Field>
+          <Button type="submit" className="self-end">{selectedRule ? "Salvar regra" : "Criar regra"}</Button>
+          <Field id="billing-rule-notes" label="Observacao" className="lg:col-span-4">
+            <textarea
+              id="billing-rule-notes"
+              name="notes"
+              placeholder="Observacao opcional para as cobrancas geradas"
+              defaultValue={selectedRule?.notes ?? ""}
+              className="min-h-20 w-full rounded-md border border-input bg-surface px-3 py-2 text-sm shadow-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20"
+            />
+          </Field>
         </form>
       </AdminSection>
 
       <AdminToolbar>
         <form className="grid gap-3 md:grid-cols-[1fr_180px_auto]">
-          <Select name="regra" defaultValue={selectedRule?.id ?? ""} aria-label="Regra de mensalidade">
-            {data.rules.length ? null : <option value="">Nenhuma regra configurada</option>}
-            {data.rules.map((rule) => (
-              <option key={rule.id} value={rule.id}>
-                {rule.name} - {ruleScopeLabel(rule)}
-              </option>
-            ))}
-          </Select>
-          <Input type="month" name="competencia" defaultValue={data.selectedCompetence} aria-label="Competencia" />
-          <Button type="submit" variant="secondary">
+          <Field id="billing-preview-rule" label="Regra de mensalidade">
+            <Select id="billing-preview-rule" name="regra" defaultValue={selectedRule?.id ?? ""}>
+              {data.rules.length ? null : <option value="">Nenhuma regra configurada</option>}
+              {data.rules.map((rule) => (
+                <option key={rule.id} value={rule.id}>
+                  {rule.name} - {ruleScopeLabel(rule)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field id="billing-preview-competence" label="Competencia" help="Formato AAAA-MM">
+            <Input
+              id="billing-preview-competence"
+              type="month"
+              name="competencia"
+              defaultValue={data.selectedCompetence}
+              aria-describedby="billing-preview-competence-help"
+            />
+          </Field>
+          <Button type="submit" variant="secondary" className="self-end">
             Atualizar preview
           </Button>
         </form>

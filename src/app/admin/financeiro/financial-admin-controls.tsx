@@ -86,20 +86,28 @@ export function FinancialFilters({
 
 export function CurrencyInput({
   name,
+  id,
   defaultValue,
-  required = false
+  required = false,
+  placeholder = "R$ 0,00",
+  "aria-describedby": ariaDescribedBy
 }: {
   name: string;
+  id?: string;
   defaultValue?: string;
   required?: boolean;
+  placeholder?: string;
+  "aria-describedby"?: string;
 }) {
   return (
     <Input
+      id={id}
       name={name}
       defaultValue={decimalToCurrencyMask(defaultValue)}
-      placeholder="R$ 0,00"
+      placeholder={placeholder}
       inputMode="numeric"
       required={required}
+      aria-describedby={ariaDescribedBy}
       onChange={(event) => {
         event.currentTarget.value = formatCurrencyMask(event.currentTarget.value);
       }}
