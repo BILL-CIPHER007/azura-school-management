@@ -15,20 +15,10 @@ import {
   paymentProviderLabel
 } from "@/lib/financial-core";
 import { requireSession } from "@/lib/auth";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatDateTime } from "@/lib/utils";
 import { FinancialError, getGuardianFinancialPortal } from "@/services/financial";
 
 export const dynamic = "force-dynamic";
-
-function formatDateTime(value: Date) {
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(value);
-}
 
 function financialActionLabel(action: string) {
   if (action.includes("refund")) return "Reembolso";

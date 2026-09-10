@@ -29,7 +29,7 @@ import {
   paymentProviderLabel
 } from "@/lib/financial-core";
 import { requireSession } from "@/lib/auth";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatDateTime } from "@/lib/utils";
 import {
   FinancialError,
   type FinancialFilterStatus,
@@ -81,16 +81,6 @@ function studentLabel(student: Awaited<ReturnType<typeof getAdminFinancialOvervi
   const enrollment = student.enrollments[0];
   if (!enrollment) return student.fullName;
   return `${student.fullName} - ${enrollment.classroom.name} - ${enrollment.academicYear.year}`;
-}
-
-function formatDateTime(value: Date) {
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(value);
 }
 
 function financialActionLabel(action: string) {
