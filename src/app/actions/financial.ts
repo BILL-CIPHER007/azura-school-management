@@ -13,6 +13,7 @@ import {
   generateExternalPayment,
   markChargePaid,
   requestChargeRefund,
+  runRecurringBillingAutomation,
   saveBillingRule,
   syncChargeWithAsaas,
   updateCharge
@@ -45,7 +46,9 @@ const billingRuleSchema = z.object({
   startsOn: z.string().optional(),
   endsOn: z.string().optional(),
   notes: z.string().optional(),
-  isActive: z.preprocess((value) => value === "on" || value === true, z.boolean())
+  isActive: z.preprocess((value) => value === "on" || value === true, z.boolean()),
+  autoGenerate: z.preprocess((value) => value === "on" || value === true, z.boolean()),
+  generationDay: z.string().optional()
 });
 
 const billingBatchSchema = z.object({
@@ -55,6 +58,10 @@ const billingBatchSchema = z.object({
 
 const emitBillingBatchSchema = billingBatchSchema.extend({
   billingType: z.enum(["PIX", "BOLETO"])
+});
+
+const billingAutomationNowSchema = z.object({
+  billingRuleId: z.string().min(1)
 });
 
 function redirectWithStatus(path: string, params: Record<string, string>): never {
@@ -244,5 +251,38 @@ export async function emitBillingBatchPaymentsAction(formData: FormData) {
     );
   } catch (error) {
     redirect(recurringBillingPath({ erro: financialErrorCode(error) }));
+  }
+}
+
+export async function runBillingAutomationNowAction(formData: FormData) {
+  const session = await requireSession(["ADMIN"]);
+  const parsed = billingAutomationNowSchema.safeParse(Object.fromEntries(formData));
+
+  if (!parsed.success) {
+    redirect(recurringBillingPath({ erro: "validacao" }));
+  }
+
+  try {
+    const result = await runRecurringBillingAutomation({
+      schoolId: session.schoolId,
+      billingRuleId: parsed.data.billingRuleId,
+      trigger: "MANUAL",
+      userId: session.id,
+      bypassSchedule: true
+    });
+
+    if (result.failedTasks > 0) {
+      redirect(recurringBillingPath({ erro: "automacao", regra: parsed.data.billingRuleId, competencia: result.competence }));
+    }
+
+    redirect(
+      recurringBillingPath({
+        sucesso: result.generatedTasks > 0 ? "automacao" : "automacao-sem-novos",
+        regra: parsed.data.billingRuleId,
+        competencia: result.competence
+      })
+    );
+  } catch (error) {
+    redirect(recurringBillingPath({ erro: financialErrorCode(error), regra: parsed.data.billingRuleId }));
   }
 }

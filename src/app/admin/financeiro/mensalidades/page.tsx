@@ -5,6 +5,7 @@ import { CalendarClock, CheckCircle2, CircleDollarSign, ReceiptText, UsersRound 
 import {
   emitBillingBatchPaymentsAction,
   generateBillingBatchAction,
+  runBillingAutomationNowAction,
   saveBillingRuleAction
 } from "@/app/actions/financial";
 import { AdminEmptyState, AdminMetric, AdminPageHeader, AdminSection, AdminToolbar } from "@/components/admin/admin-ui";
@@ -20,13 +21,15 @@ import {
   formatCurrencyBRL
 } from "@/lib/financial-core";
 import { requireSession } from "@/lib/auth";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatDateTime } from "@/lib/utils";
 import { FinancialError, getRecurringBillingAdmin } from "@/services/financial";
 
 export const dynamic = "force-dynamic";
 
 const successMessages: Record<string, string> = {
   regra: "Regra de mensalidade salva.",
+  automacao: "Automacao executada para a competencia atual.",
+  "automacao-sem-novos": "Automacao executada; nenhuma nova mensalidade foi criada.",
   lote: "Mensalidades geradas com sucesso.",
   "lote-sem-novos": "Nenhuma nova mensalidade foi criada; as cobranças existentes foram preservadas.",
   emissao: "Emissao em lote concluida.",
@@ -42,7 +45,8 @@ const errorMessages: Record<string, string> = {
   competencia: "Informe uma competencia valida.",
   lote: "Nao foi possivel gerar o lote.",
   emissao: "Nao foi possivel concluir a emissao em lote.",
-  asaas: "Nao foi possivel concluir a integracao com o Asaas Sandbox."
+  asaas: "Nao foi possivel concluir a integracao com o Asaas Sandbox.",
+  automacao: "Nao foi possivel executar a automacao."
 };
 
 type RecurringBillingAdminData = Awaited<ReturnType<typeof getRecurringBillingAdmin>>;
@@ -98,6 +102,24 @@ function batchRuleLabel(batch: BillingBatchRow) {
   return `${batch.billingRule.name}${scope}`;
 }
 
+function automationStatusLabel(status: BillingRuleRow["automationRuns"][number]["status"]) {
+  const labels = {
+    SUCCESS: "Concluida",
+    SKIPPED: "Sem novas mensalidades",
+    FAILED: "Falhou"
+  };
+  return labels[status];
+}
+
+function automationStatusTone(status: BillingRuleRow["automationRuns"][number]["status"]) {
+  const tones = {
+    SUCCESS: "success",
+    SKIPPED: "neutral",
+    FAILED: "danger"
+  } as const;
+  return tones[status];
+}
+
 export default async function AdminRecurringBillingPage({
   searchParams
 }: {
@@ -121,6 +143,7 @@ export default async function AdminRecurringBillingPage({
 
   const selectedRule = data.selectedRule;
   const preview = data.preview;
+  const lastAutomationRun = selectedRule?.automationRuns[0] ?? null;
   const feedback = query.sucesso
     ? successMessages[query.sucesso]
     : query.erro
@@ -218,6 +241,45 @@ export default async function AdminRecurringBillingPage({
             </label>
           </Field>
           <Button type="submit" className="self-end">{selectedRule ? "Salvar regra" : "Criar regra"}</Button>
+          <div className="lg:col-span-4 rounded-lg border border-border bg-muted/30 p-4">
+            <div className="grid gap-3 md:grid-cols-[1fr_160px]">
+              <Field
+                id="billing-rule-auto-generate"
+                label="Automacao"
+                help="Gera mensalidades internas automaticamente na competencia atual. Pix e boleto continuam manuais."
+              >
+                <label
+                  htmlFor="billing-rule-auto-generate"
+                  className="flex min-h-10 items-center gap-2 rounded-md border border-input bg-surface px-3 text-sm text-text-secondary shadow-sm"
+                >
+                  <input
+                    id="billing-rule-auto-generate"
+                    type="checkbox"
+                    name="autoGenerate"
+                    defaultChecked={selectedRule?.autoGenerate ?? false}
+                    className="h-4 w-4"
+                  />
+                  Gerar mensalidades automaticamente
+                </label>
+              </Field>
+              <Field
+                id="billing-rule-generation-day"
+                label="Dia da geracao"
+                help="Se o mes tiver menos dias, o sistema usa o ultimo dia valido."
+              >
+                <Input
+                  id="billing-rule-generation-day"
+                  name="generationDay"
+                  type="number"
+                  min={1}
+                  max={31}
+                  placeholder="Dia"
+                  defaultValue={selectedRule?.generationDay.toString() ?? "1"}
+                  aria-describedby="billing-rule-generation-day-help"
+                />
+              </Field>
+            </div>
+          </div>
           <Field id="billing-rule-notes" label="Observacao" className="lg:col-span-4">
             <textarea
               id="billing-rule-notes"
@@ -256,6 +318,77 @@ export default async function AdminRecurringBillingPage({
           </Button>
         </form>
       </AdminToolbar>
+
+      {selectedRule ? (
+        <AdminSection
+          title="Automacao"
+          description="Controle a geracao interna de mensalidades. A emissao Pix/Boleto continua manual no Asaas Sandbox."
+          action={
+            <form action={runBillingAutomationNowAction}>
+              <input type="hidden" name="billingRuleId" value={selectedRule.id} />
+              <ConfirmSubmitButton
+                message={`Executar a geracao automatica de ${billingCompetenceLabel(data.selectedCompetence)} agora? Cobrancas existentes serao preservadas.`}
+                pendingLabel="Executando..."
+                icon="none"
+                variant="outline"
+                disabled={!selectedRule.isActive || !selectedRule.autoGenerate}
+              >
+                Executar geracao agora
+              </ConfirmSubmitButton>
+            </form>
+          }
+        >
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-lg border border-border bg-surface p-4">
+              <p className="text-xs font-medium uppercase text-text-muted">Status</p>
+              <div className="mt-2 flex items-center gap-2">
+                <Badge variant={selectedRule.autoGenerate ? "success" : "neutral"}>
+                  {selectedRule.autoGenerate ? "Automatica ativa" : "Automatica inativa"}
+                </Badge>
+                {!selectedRule.isActive ? <Badge variant="warning">Regra inativa</Badge> : null}
+              </div>
+            </div>
+            <div className="rounded-lg border border-border bg-surface p-4">
+              <p className="text-xs font-medium uppercase text-text-muted">Proxima geracao</p>
+              <p className="mt-2 font-semibold text-school-navy">
+                {selectedRule.nextGenerationAt ? formatDate(selectedRule.nextGenerationAt) : "Nao programada"}
+              </p>
+              <p className="mt-1 text-xs text-text-muted">Dia {selectedRule.generationDay} de cada mes</p>
+            </div>
+            <div className="rounded-lg border border-border bg-surface p-4">
+              <p className="text-xs font-medium uppercase text-text-muted">Ultima competencia</p>
+              <p className="mt-2 font-semibold text-school-navy">
+                {selectedRule.lastGeneratedCompetence
+                  ? billingCompetenceLabel(selectedRule.lastGeneratedCompetence)
+                  : "Nenhuma geracao"}
+              </p>
+              <p className="mt-1 text-xs text-text-muted">Atualizada pelo job ou por execucao manual.</p>
+            </div>
+            <div className="rounded-lg border border-border bg-surface p-4">
+              <p className="text-xs font-medium uppercase text-text-muted">Ultimo resultado</p>
+              {lastAutomationRun ? (
+                <>
+                  <div className="mt-2">
+                    <Badge variant={automationStatusTone(lastAutomationRun.status)}>
+                      {automationStatusLabel(lastAutomationRun.status)}
+                    </Badge>
+                  </div>
+                  <p className="mt-2 text-xs text-text-muted">{formatDateTime(lastAutomationRun.createdAt)}</p>
+                  <p className="mt-1 text-xs text-text-muted">
+                    {lastAutomationRun.generatedCharges} criadas · {lastAutomationRun.existingCharges} existentes ·{" "}
+                    {lastAutomationRun.skippedStudents} ignoradas
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="mt-2 font-semibold text-school-navy">Sem execucao registrada</p>
+                  <p className="mt-1 text-xs text-text-muted">O historico aparecera apos a primeira geracao.</p>
+                </>
+              )}
+            </div>
+          </div>
+        </AdminSection>
+      ) : null}
 
       {selectedRule && preview ? (
         <>

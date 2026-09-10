@@ -249,3 +249,109 @@ export function paymentProviderLabel(value: PaymentProvider | null | undefined) 
   };
   return value ? labels[value] : "Interno";
 }
+
+export const BILLING_AUTOMATION_TIME_ZONE = "America/Sao_Paulo";
+
+export type BillingAutomationRuleWindow = {
+  isActive: boolean;
+  autoGenerate: boolean;
+  generationDay: number;
+  dueDay: number;
+  startsOn?: Date | null;
+  endsOn?: Date | null;
+};
+
+export function getBillingAutomationDateParts(value = new Date(), timeZone = BILLING_AUTOMATION_TIME_ZONE) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  })
+    .formatToParts(value)
+    .reduce<Record<string, string>>((acc, part) => {
+      if (part.type !== "literal") acc[part.type] = part.value;
+      return acc;
+    }, {});
+
+  return {
+    year: Number(parts.year),
+    month: Number(parts.month),
+    day: Number(parts.day)
+  };
+}
+
+export function getBillingAutomationCompetence(value = new Date()) {
+  const parts = getBillingAutomationDateParts(value);
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}`;
+}
+
+export function daysInBillingMonth(year: number, month: number) {
+  return new Date(Date.UTC(year, month, 0, 12)).getUTCDate();
+}
+
+export function clampBillingAutomationDay(year: number, month: number, generationDay: number) {
+  if (!Number.isInteger(generationDay) || generationDay < 1 || generationDay > 31) return null;
+  return Math.min(generationDay, daysInBillingMonth(year, month));
+}
+
+export function billingAutomationDateKeyFromParts(year: number, month: number, day: number) {
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+export function billingAutomationRunAtFromCompetence(competence: string, generationDay: number) {
+  const normalized = normalizeBillingCompetence(competence);
+  if (!normalized) return null;
+
+  const [year, month] = normalized.split("-").map(Number);
+  const day = clampBillingAutomationDay(year, month, generationDay);
+  if (!day) return null;
+
+  return new Date(Date.UTC(year, month - 1, day, 9, 0, 0, 0));
+}
+
+export function isBillingCompetenceWithinRuleValidity(rule: Pick<BillingAutomationRuleWindow, "dueDay" | "startsOn" | "endsOn">, competence: string) {
+  const dueDate = dueDateFromBillingCompetence(competence, rule.dueDay);
+  if (!dueDate) return false;
+
+  if (rule.startsOn && dueDate < rule.startsOn) return false;
+  if (rule.endsOn && dueDate > rule.endsOn) return false;
+
+  return true;
+}
+
+export function shouldRunBillingAutomationRule(rule: BillingAutomationRuleWindow, value = new Date()) {
+  if (!rule.isActive || !rule.autoGenerate) return false;
+
+  const parts = getBillingAutomationDateParts(value);
+  const generationDay = clampBillingAutomationDay(parts.year, parts.month, rule.generationDay);
+  if (!generationDay || parts.day !== generationDay) return false;
+
+  return isBillingCompetenceWithinRuleValidity(rule, getBillingAutomationCompetence(value));
+}
+
+export function getNextBillingAutomationRunAt(rule: BillingAutomationRuleWindow, from = new Date()) {
+  if (!rule.isActive || !rule.autoGenerate) return null;
+
+  const current = getBillingAutomationDateParts(from);
+  const todayKey = Number(`${current.year}${String(current.month).padStart(2, "0")}${String(current.day).padStart(2, "0")}`);
+
+  for (let offset = 0; offset < 24; offset += 1) {
+    const monthIndex = current.month - 1 + offset;
+    const candidateYear = current.year + Math.floor(monthIndex / 12);
+    const candidateMonth = (monthIndex % 12) + 1;
+    const candidateDay = clampBillingAutomationDay(candidateYear, candidateMonth, rule.generationDay);
+    if (!candidateDay) return null;
+
+    const candidateKey = Number(
+      `${candidateYear}${String(candidateMonth).padStart(2, "0")}${String(candidateDay).padStart(2, "0")}`
+    );
+    const competence = `${candidateYear}-${String(candidateMonth).padStart(2, "0")}`;
+
+    if (candidateKey >= todayKey && isBillingCompetenceWithinRuleValidity(rule, competence)) {
+      return billingAutomationRunAtFromCompetence(competence, rule.generationDay);
+    }
+  }
+
+  return null;
+}

@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import type { ChargeStatus, ExternalBillingType, FinancialEventSource } from "@prisma/client";
+import type { BillingAutomationRunStatus, BillingAutomationTrigger, ChargeStatus, ExternalBillingType, FinancialEventSource } from "@prisma/client";
 import {
   AsaasClientError,
   createAsaasCustomer,
@@ -22,7 +22,10 @@ import {
   canRequestRefund,
   dateFromCivilInput,
   dueDateFromBillingCompetence,
+  getBillingAutomationCompetence,
+  getNextBillingAutomationRunAt,
   getChargeDisplayStatus,
+  shouldRunBillingAutomationRule,
   nextChargeStatusFromAsaas,
   normalizeBillingCompetence,
   normalizeAsaasPaymentStatus,
@@ -67,7 +70,8 @@ export class FinancialError extends Error {
       | "regra"
       | "competencia"
       | "lote"
-      | "emissao",
+      | "emissao"
+      | "automacao",
     message: string
   ) {
     super(message);
@@ -1052,6 +1056,8 @@ export type BillingRuleFormInput = {
   endsOn?: string;
   notes?: string;
   isActive?: boolean;
+  autoGenerate?: boolean;
+  generationDay?: string;
 };
 
 export type BillingPreviewRow = {
@@ -1106,15 +1112,30 @@ function parseBillingRuleInput(input: BillingRuleFormInput) {
   const classroomId = input.classroomId?.trim() || null;
   const startsOn = parseOptionalCivilDate(input.startsOn);
   const endsOn = parseOptionalCivilDate(input.endsOn);
+  const generationDay = Number(input.generationDay || "1");
+  const isActive = input.isActive ?? true;
+  const autoGenerate = input.autoGenerate ?? false;
 
   if (!name) throw new FinancialError("regra", "Informe o nome da mensalidade.");
   if (!amount) throw new FinancialError("valor", "Informe um valor valido maior que zero.");
   if (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31) {
     throw new FinancialError("data", "Informe um dia de vencimento entre 1 e 31.");
   }
+  if (!Number.isInteger(generationDay) || generationDay < 1 || generationDay > 31) {
+    throw new FinancialError("data", "Informe um dia de geracao entre 1 e 31.");
+  }
   if (startsOn && endsOn && startsOn > endsOn) {
     throw new FinancialError("data", "A data inicial nao pode ser posterior a data final.");
   }
+
+  const nextGenerationAt = getNextBillingAutomationRunAt({
+    isActive,
+    autoGenerate,
+    generationDay,
+    dueDay,
+    startsOn,
+    endsOn
+  });
 
   return {
     name,
@@ -1125,7 +1146,10 @@ function parseBillingRuleInput(input: BillingRuleFormInput) {
     startsOn,
     endsOn,
     notes: input.notes?.trim() || null,
-    isActive: input.isActive ?? true
+    isActive,
+    autoGenerate,
+    generationDay,
+    nextGenerationAt
   };
 }
 
@@ -1338,7 +1362,13 @@ export async function getRecurringBillingAdmin(
   const [rules, activeAcademicYear] = await Promise.all([
     prisma.billingRule.findMany({
       where: { schoolId },
-      include: { classroom: true },
+      include: {
+        classroom: true,
+        automationRuns: {
+          orderBy: { createdAt: "desc" },
+          take: 1
+        }
+      },
       orderBy: [{ isActive: "desc" }, { createdAt: "desc" }]
     }),
     getActiveAcademicYearForBilling(prisma, schoolId)
@@ -1426,7 +1456,7 @@ export async function saveBillingRule(schoolId: string, userId: string, input: B
   });
 }
 
-export async function generateBillingBatch(schoolId: string, userId: string, input: { billingRuleId: string; competence: string }) {
+export async function generateBillingBatch(schoolId: string, userId: string | null, input: { billingRuleId: string; competence: string }) {
   return prisma.$transaction(async (tx) => {
     await assertFinancialFeature(schoolId, tx);
     const rule = await resolveBillingRule(tx, schoolId, input.billingRuleId);
@@ -1465,39 +1495,41 @@ export async function generateBillingBatch(schoolId: string, userId: string, inp
       }
     });
 
-    let created = 0;
-    for (const row of preview.rows.filter((item) => item.canGenerate)) {
-      try {
-        const charge = await tx.charge.create({
-          data: {
-            schoolId,
-            studentId: row.studentId,
-            enrollmentId: row.enrollmentId,
-            guardianId: row.guardianId,
-            billingRuleId: rule.id,
-            billingBatchId: batch.id,
-            competence: preview.competence,
-            reference: `${rule.name} ${preview.competenceLabel}`,
-            description: rule.notes ?? `Mensalidade referente a ${preview.competenceLabel}.`,
-            amount: rule.amount,
-            dueDate: preview.dueDate
-          }
-        });
+    const chargesToCreate = preview.rows
+      .filter((item) => item.canGenerate)
+      .map((row) => ({
+        schoolId,
+        studentId: row.studentId,
+        enrollmentId: row.enrollmentId,
+        guardianId: row.guardianId,
+        billingRuleId: rule.id,
+        billingBatchId: batch.id,
+        competence: preview.competence,
+        reference: `${rule.name} ${preview.competenceLabel}`,
+        description: rule.notes ?? `Mensalidade referente a ${preview.competenceLabel}.`,
+        amount: rule.amount,
+        dueDate: preview.dueDate
+      }));
+    const createdCharges = chargesToCreate.length
+      ? await tx.charge.createManyAndReturn({
+          data: chargesToCreate,
+          skipDuplicates: true,
+          select: { id: true }
+        })
+      : [];
 
-        await recordFinancialEvent(tx, {
-          schoolId,
-          userId,
-          chargeId: charge.id,
-          source: "ADMIN",
-          action: "financial_charge.recurring_created",
-          nextStatus: "PENDING",
-          message: `Mensalidade ${preview.competenceLabel} gerada em lote.`
-        });
-        created += 1;
-      } catch (error) {
-        if (!isUniqueConstraintError(error)) throw error;
-      }
+    for (const charge of createdCharges) {
+      await recordFinancialEvent(tx, {
+        schoolId,
+        userId,
+        chargeId: charge.id,
+        source: "ADMIN",
+        action: "financial_charge.recurring_created",
+        nextStatus: "PENDING",
+        message: `Mensalidade ${preview.competenceLabel} gerada em lote.`
+      });
     }
+    const created = createdCharges.length;
 
     const generatedCharges = await tx.charge.findMany({
       where: {
@@ -1535,6 +1567,247 @@ export async function generateBillingBatch(schoolId: string, userId: string, inp
       total: generatedCharges.length
     };
   });
+}
+
+type BillingAutomationRule = Prisma.BillingRuleGetPayload<{
+  include: {
+    classroom: true;
+    school: { select: { plan: true } };
+  };
+}>;
+
+type BillingAutomationRunInput = {
+  now?: Date;
+  trigger?: BillingAutomationTrigger;
+  userId?: string | null;
+  schoolId?: string;
+  billingRuleId?: string;
+  bypassSchedule?: boolean;
+};
+
+export type BillingAutomationRunSummary = {
+  totalTasks: number;
+  generatedTasks: number;
+  skippedTasks: number;
+  failedTasks: number;
+  competence: string;
+  items: Array<{
+    schoolId: string;
+    billingRuleId: string;
+    ruleName: string;
+    competence: string;
+    status: BillingAutomationRunStatus;
+    eligibleStudents: number;
+    generatedCharges: number;
+    existingCharges: number;
+    skippedStudents: number;
+    errorMessage: string | null;
+  }>;
+};
+
+function nextBillingAutomationRunAfter(rule: BillingAutomationRuleWithSchedule, now: Date) {
+  return getNextBillingAutomationRunAt(rule, new Date(now.getTime() + 24 * 60 * 60 * 1000));
+}
+
+type BillingAutomationRuleWithSchedule = Pick<
+  BillingAutomationRule,
+  "isActive" | "autoGenerate" | "generationDay" | "dueDay" | "startsOn" | "endsOn"
+>;
+
+async function registerBillingAutomationRun(
+  input: {
+    schoolId: string;
+    billingRuleId: string;
+    competence: string;
+    trigger: BillingAutomationTrigger;
+    status: BillingAutomationRunStatus;
+    eligibleStudents?: number;
+    generatedCharges?: number;
+    existingCharges?: number;
+    skippedStudents?: number;
+    errorMessage?: string | null;
+    triggeredById?: string | null;
+  }
+) {
+  return prisma.billingAutomationRun.create({
+    data: {
+      schoolId: input.schoolId,
+      billingRuleId: input.billingRuleId,
+      competence: input.competence,
+      trigger: input.trigger,
+      status: input.status,
+      eligibleStudents: input.eligibleStudents ?? 0,
+      generatedCharges: input.generatedCharges ?? 0,
+      existingCharges: input.existingCharges ?? 0,
+      skippedStudents: input.skippedStudents ?? 0,
+      errorMessage: input.errorMessage?.slice(0, 240) ?? null,
+      triggeredById: input.triggeredById ?? null
+    }
+  });
+}
+
+async function runBillingAutomationRule(
+  rule: BillingAutomationRule,
+  input: Required<Pick<BillingAutomationRunInput, "now" | "trigger" | "bypassSchedule">> & {
+    userId: string | null;
+  }
+): Promise<BillingAutomationRunSummary["items"][number]> {
+  const competence = getBillingAutomationCompetence(input.now);
+
+  try {
+    if (!rule.isActive) {
+      throw new FinancialError("regra", "A regra de mensalidade esta inativa.");
+    }
+    if (!rule.autoGenerate) {
+      throw new FinancialError("automacao", "A automacao desta regra esta desativada.");
+    }
+    if (!input.bypassSchedule && !shouldRunBillingAutomationRule(rule, input.now)) {
+      const run = await registerBillingAutomationRun({
+        schoolId: rule.schoolId,
+        billingRuleId: rule.id,
+        competence,
+        trigger: input.trigger,
+        status: "SKIPPED",
+        errorMessage: "Fora do dia programado ou da vigencia da regra.",
+        triggeredById: input.userId
+      });
+
+      await prisma.billingRule.update({
+        where: { id: rule.id },
+        data: {
+          nextGenerationAt: getNextBillingAutomationRunAt(rule, input.now)
+        }
+      });
+
+      return {
+        schoolId: rule.schoolId,
+        billingRuleId: rule.id,
+        ruleName: rule.name,
+        competence,
+        status: run.status,
+        eligibleStudents: run.eligibleStudents,
+        generatedCharges: run.generatedCharges,
+        existingCharges: run.existingCharges,
+        skippedStudents: run.skippedStudents,
+        errorMessage: run.errorMessage
+      };
+    }
+
+    await assertFinancialFeature(rule.schoolId);
+    const preview = await buildBillingPreview(prisma, rule.schoolId, rule, competence);
+    assertBillingRuleCoversDueDate(rule, preview.dueDate);
+
+    const result = await generateBillingBatch(rule.schoolId, input.userId, {
+      billingRuleId: rule.id,
+      competence
+    });
+    const status: BillingAutomationRunStatus = result.created > 0 ? "SUCCESS" : "SKIPPED";
+    const run = await registerBillingAutomationRun({
+      schoolId: rule.schoolId,
+      billingRuleId: rule.id,
+      competence,
+      trigger: input.trigger,
+      status,
+      eligibleStudents: preview.summary.eligibleStudents,
+      generatedCharges: result.created,
+      existingCharges: result.existing,
+      skippedStudents: preview.summary.skippedStudents,
+      triggeredById: input.userId
+    });
+
+    await prisma.billingRule.update({
+      where: { id: rule.id },
+      data: {
+        lastGeneratedCompetence: competence,
+        nextGenerationAt: nextBillingAutomationRunAfter(rule, input.now)
+      }
+    });
+
+    return {
+      schoolId: rule.schoolId,
+      billingRuleId: rule.id,
+      ruleName: rule.name,
+      competence,
+      status: run.status,
+      eligibleStudents: run.eligibleStudents,
+      generatedCharges: run.generatedCharges,
+      existingCharges: run.existingCharges,
+      skippedStudents: run.skippedStudents,
+      errorMessage: run.errorMessage
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Nao foi possivel executar a automacao.";
+    const run = await registerBillingAutomationRun({
+      schoolId: rule.schoolId,
+      billingRuleId: rule.id,
+      competence,
+      trigger: input.trigger,
+      status: "FAILED",
+      errorMessage: message,
+      triggeredById: input.userId
+    });
+
+    return {
+      schoolId: rule.schoolId,
+      billingRuleId: rule.id,
+      ruleName: rule.name,
+      competence,
+      status: run.status,
+      eligibleStudents: run.eligibleStudents,
+      generatedCharges: run.generatedCharges,
+      existingCharges: run.existingCharges,
+      skippedStudents: run.skippedStudents,
+      errorMessage: run.errorMessage
+    };
+  }
+}
+
+export async function runRecurringBillingAutomation(input: BillingAutomationRunInput = {}): Promise<BillingAutomationRunSummary> {
+  const now = input.now ?? new Date();
+  const trigger = input.trigger ?? "CRON";
+  const competence = getBillingAutomationCompetence(now);
+  const where: Prisma.BillingRuleWhereInput = input.billingRuleId
+    ? { id: input.billingRuleId, ...(input.schoolId ? { schoolId: input.schoolId } : {}) }
+    : {
+        isActive: true,
+        autoGenerate: true,
+        school: { plan: "PROFISSIONAL" }
+      };
+
+  const rules = await prisma.billingRule.findMany({
+    where,
+    include: {
+      classroom: true,
+      school: { select: { plan: true } }
+    },
+    orderBy: [{ schoolId: "asc" }, { createdAt: "asc" }]
+  });
+
+  const items = [];
+
+  for (const rule of rules) {
+    items.push(
+      await runBillingAutomationRule(rule, {
+        now,
+        trigger,
+        userId: input.userId ?? null,
+        bypassSchedule: input.bypassSchedule ?? false
+      })
+    );
+  }
+
+  const generatedTasks = items.filter((item) => item.status === "SUCCESS").length;
+  const skippedTasks = items.filter((item) => item.status === "SKIPPED").length;
+  const failedTasks = items.filter((item) => item.status === "FAILED").length;
+
+  return {
+    totalTasks: items.length,
+    generatedTasks,
+    skippedTasks,
+    failedTasks,
+    competence,
+    items
+  };
 }
 
 export async function emitBillingBatchPayments(

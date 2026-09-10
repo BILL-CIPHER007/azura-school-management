@@ -52,6 +52,17 @@ enum BillingTargetScope {
   CLASSROOM
 }
 
+enum BillingAutomationRunStatus {
+  SUCCESS
+  SKIPPED
+  FAILED
+}
+
+enum BillingAutomationTrigger {
+  CRON
+  MANUAL
+}
+
 enum EnrollmentStatus {
   ACTIVE
   TRANSFERRED
@@ -113,28 +124,30 @@ model School {
   charges                   Charge[]
   billingRules              BillingRule[]
   billingBatches            BillingBatch[]
+  billingAutomationRuns     BillingAutomationRun[]
   auditLogs                 AuditLog[]
   financialEvents           ChargeFinancialEvent[]
   guardianExternalCustomers GuardianExternalCustomer[]
 }
 
 model User {
-  id              String                 @id @default(cuid())
-  schoolId        String
-  name            String
-  email           String
-  passwordHash    String
-  role            UserRole
-  status          UserStatus             @default(ACTIVE)
-  createdAt       DateTime               @default(now())
-  updatedAt       DateTime               @updatedAt
-  school          School                 @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  student         Student?
-  guardian        Guardian?
-  teacher         Teacher?
-  auditLogs       AuditLog[]
-  financialEvents ChargeFinancialEvent[]
-  billingBatches  BillingBatch[]
+  id                    String                 @id @default(cuid())
+  schoolId              String
+  name                  String
+  email                 String
+  passwordHash          String
+  role                  UserRole
+  status                UserStatus             @default(ACTIVE)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  school                School                 @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  student               Student?
+  guardian              Guardian?
+  teacher               Teacher?
+  auditLogs             AuditLog[]
+  financialEvents       ChargeFinancialEvent[]
+  billingBatches        BillingBatch[]
+  billingAutomationRuns BillingAutomationRun[]
 
   @@unique([schoolId, email])
   @@index([schoolId, role])
@@ -389,25 +402,31 @@ model ChargeFinancialEvent {
 }
 
 model BillingRule {
-  id          String             @id @default(cuid())
-  schoolId    String
-  classroomId String?
-  name        String
-  amount      Decimal            @db.Decimal(10, 2)
-  dueDay      Int
-  targetScope BillingTargetScope @default(SCHOOL)
-  isActive    Boolean            @default(true)
-  startsOn    DateTime?
-  endsOn      DateTime?
-  notes       String?
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
-  school      School             @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  classroom   Classroom?         @relation(fields: [classroomId], references: [id], onDelete: SetNull)
-  charges     Charge[]
-  batches     BillingBatch[]
+  id                      String                 @id @default(cuid())
+  schoolId                String
+  classroomId             String?
+  name                    String
+  amount                  Decimal                @db.Decimal(10, 2)
+  dueDay                  Int
+  targetScope             BillingTargetScope     @default(SCHOOL)
+  isActive                Boolean                @default(true)
+  autoGenerate            Boolean                @default(false)
+  generationDay           Int                    @default(1)
+  lastGeneratedCompetence String?
+  nextGenerationAt        DateTime?
+  startsOn                DateTime?
+  endsOn                  DateTime?
+  notes                   String?
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+  school                  School                 @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  classroom               Classroom?             @relation(fields: [classroomId], references: [id], onDelete: SetNull)
+  charges                 Charge[]
+  batches                 BillingBatch[]
+  automationRuns          BillingAutomationRun[]
 
   @@index([schoolId, isActive])
+  @@index([schoolId, autoGenerate, generationDay])
   @@index([schoolId, classroomId])
 }
 
@@ -434,6 +453,28 @@ model BillingBatch {
   @@unique([schoolId, billingRuleId, competence])
   @@index([schoolId, competence])
   @@index([schoolId, createdAt])
+}
+
+model BillingAutomationRun {
+  id               String                     @id @default(cuid())
+  schoolId         String
+  billingRuleId    String?
+  competence       String
+  trigger          BillingAutomationTrigger   @default(CRON)
+  status           BillingAutomationRunStatus
+  eligibleStudents Int                        @default(0)
+  generatedCharges Int                        @default(0)
+  existingCharges  Int                        @default(0)
+  skippedStudents  Int                        @default(0)
+  errorMessage     String?
+  triggeredById    String?
+  createdAt        DateTime                   @default(now())
+  school           School                     @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  billingRule      BillingRule?               @relation(fields: [billingRuleId], references: [id], onDelete: SetNull)
+  triggeredBy      User?                      @relation(fields: [triggeredById], references: [id], onDelete: SetNull)
+
+  @@index([schoolId, createdAt])
+  @@index([schoolId, billingRuleId, createdAt])
 }
 
 model TeacherSubject {
