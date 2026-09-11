@@ -162,9 +162,14 @@ export default async function AdminRecurringBillingPage({
           { label: "Mensalidades" }
         ]}
         action={
-          <Button asChild variant="secondary">
-            <Link href="/admin/financeiro">Cobrancas</Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="secondary">
+              <Link href="/admin/financeiro/inadimplencia">Inadimplencia</Link>
+            </Button>
+            <Button asChild variant="secondary">
+              <Link href="/admin/financeiro">Cobrancas</Link>
+            </Button>
+          </div>
         }
       />
 

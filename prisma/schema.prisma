@@ -47,6 +47,28 @@ enum FinancialEventSource {
   SYSTEM
 }
 
+enum CollectionActionType {
+  CONTACT
+  CONTACTED
+  NOTE
+  PAYMENT_PROMISE
+}
+
+enum CollectionChannel {
+  PHONE
+  WHATSAPP
+  EMAIL
+  IN_PERSON
+  OTHER
+}
+
+enum PaymentPromiseStatus {
+  OPEN
+  FULFILLED
+  OVERDUE
+  CANCELED
+}
+
 enum BillingTargetScope {
   SCHOOL
   CLASSROOM
@@ -127,6 +149,7 @@ model School {
   billingAutomationRuns     BillingAutomationRun[]
   auditLogs                 AuditLog[]
   financialEvents           ChargeFinancialEvent[]
+  collectionActions         CollectionAction[]
   guardianExternalCustomers GuardianExternalCustomer[]
 }
 
@@ -146,6 +169,7 @@ model User {
   teacher               Teacher?
   auditLogs             AuditLog[]
   financialEvents       ChargeFinancialEvent[]
+  collectionActions     CollectionAction[]
   billingBatches        BillingBatch[]
   billingAutomationRuns BillingAutomationRun[]
 
@@ -367,6 +391,7 @@ model Charge {
   billingRule       BillingRule?           @relation(fields: [billingRuleId], references: [id], onDelete: SetNull)
   billingBatch      BillingBatch?          @relation(fields: [billingBatchId], references: [id], onDelete: SetNull)
   financialEvents   ChargeFinancialEvent[]
+  collectionActions CollectionAction[]
 
   @@unique([schoolId, studentId, billingRuleId, competence])
   @@index([schoolId, status, dueDate])
@@ -376,6 +401,26 @@ model Charge {
   @@index([schoolId, provider, externalStatus])
   @@index([schoolId, billingRuleId, competence])
   @@index([schoolId, billingBatchId])
+}
+
+model CollectionAction {
+  id            String                @id @default(cuid())
+  schoolId      String
+  chargeId      String
+  type          CollectionActionType
+  channel       CollectionChannel?
+  note          String?
+  promisedDate  DateTime?
+  promiseStatus PaymentPromiseStatus?
+  createdById   String?
+  createdAt     DateTime              @default(now())
+  school        School                @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  charge        Charge                @relation(fields: [chargeId], references: [id], onDelete: Cascade)
+  createdBy     User?                 @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([schoolId, chargeId, createdAt])
+  @@index([schoolId, type, createdAt])
+  @@index([schoolId, promiseStatus, promisedDate])
 }
 
 model ChargeFinancialEvent {

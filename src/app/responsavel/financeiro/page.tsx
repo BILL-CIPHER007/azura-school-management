@@ -12,6 +12,8 @@ import {
   chargeStatusTone,
   formatCurrencyBRL,
   getChargeDisplayStatus,
+  getDaysOverdue,
+  isChargeDelinquent,
   paymentProviderLabel
 } from "@/lib/financial-core";
 import { requireSession } from "@/lib/auth";
@@ -90,6 +92,8 @@ export default async function GuardianFinancialPage({
           <div className="grid gap-3">
             {portal.charges.map((charge) => {
               const displayStatus = getChargeDisplayStatus(charge.status, charge.dueDate);
+              const isOverdue = isChargeDelinquent(charge.status, charge.dueDate);
+              const daysOverdue = isOverdue ? getDaysOverdue(charge.dueDate) : 0;
               const pixInstruction = portal.pixInstructions[charge.id];
               return (
                 <article key={charge.id} className="rounded-lg border border-border bg-surface-muted/60 p-4">
@@ -104,6 +108,11 @@ export default async function GuardianFinancialPage({
                         Vencimento em {formatDate(charge.dueDate)}
                         {charge.paidAt ? ` - pago em ${formatDate(charge.paidAt)}` : ""}
                       </p>
+                      {isOverdue ? (
+                        <p className="mt-1 text-sm font-medium text-warning">
+                          Pagamento em atraso ha {daysOverdue} {daysOverdue === 1 ? "dia" : "dias"}.
+                        </p>
+                      ) : null}
                       {charge.enrollment?.classroom ? (
                         <p className="mt-1 text-xs text-text-muted">
                           {charge.enrollment.classroom.name} - Ano letivo {charge.enrollment.academicYear.year}

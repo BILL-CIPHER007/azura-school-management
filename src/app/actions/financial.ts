@@ -13,6 +13,7 @@ import {
   generateExternalPayment,
   markChargePaid,
   requestChargeRefund,
+  registerCollectionAction,
   runRecurringBillingAutomation,
   saveBillingRule,
   syncChargeWithAsaas,
@@ -64,6 +65,17 @@ const billingAutomationNowSchema = z.object({
   billingRuleId: z.string().min(1)
 });
 
+const collectionActionSchema = z.object({
+  chargeId: z.string().min(1),
+  type: z.enum(["CONTACT", "CONTACTED", "NOTE", "PAYMENT_PROMISE"]),
+  channel: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.enum(["PHONE", "WHATSAPP", "EMAIL", "IN_PERSON", "OTHER"]).optional()
+  ),
+  note: z.string().optional(),
+  promisedDate: z.string().optional()
+});
+
 function redirectWithStatus(path: string, params: Record<string, string>): never {
   const search = new URLSearchParams(params);
   redirect(`${path}?${search.toString()}`);
@@ -86,6 +98,11 @@ function revalidateFinancialPaths(studentId?: string) {
 function recurringBillingPath(params: Record<string, string>) {
   const search = new URLSearchParams(params);
   return `/admin/financeiro/mensalidades?${search.toString()}`;
+}
+
+function delinquencyPath(params: Record<string, string>) {
+  const search = new URLSearchParams(params);
+  return `/admin/financeiro/inadimplencia?${search.toString()}`;
 }
 
 export async function createChargeAction(formData: FormData) {
@@ -188,6 +205,28 @@ export async function generateExternalPaymentAction(formData: FormData) {
     redirectWithStatus("/admin/financeiro", { sucesso: parsed.data.billingType === "PIX" ? "pix" : "boleto" });
   } catch (error) {
     redirectWithStatus("/admin/financeiro", { erro: financialErrorCode(error) });
+  }
+}
+
+export async function registerCollectionActionAction(formData: FormData) {
+  const session = await requireSession(["ADMIN"]);
+  const parsed = collectionActionSchema.safeParse(Object.fromEntries(formData));
+
+  if (!parsed.success) {
+    redirect(delinquencyPath({ erro: "validacao" }));
+  }
+
+  try {
+    await registerCollectionAction(session.schoolId, session.id, parsed.data);
+    revalidateFinancialPaths();
+    revalidatePath("/admin/financeiro/inadimplencia");
+    redirect(
+      delinquencyPath({
+        sucesso: parsed.data.type === "PAYMENT_PROMISE" ? "promessa" : parsed.data.type === "NOTE" ? "observacao" : "contato"
+      })
+    );
+  } catch (error) {
+    redirect(delinquencyPath({ erro: financialErrorCode(error) }));
   }
 }
 

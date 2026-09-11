@@ -1,5 +1,14 @@
 import { Prisma } from "@prisma/client";
-import type { BillingAutomationRunStatus, BillingAutomationTrigger, ChargeStatus, ExternalBillingType, FinancialEventSource } from "@prisma/client";
+import type {
+  BillingAutomationRunStatus,
+  BillingAutomationTrigger,
+  ChargeStatus,
+  CollectionActionType,
+  CollectionChannel,
+  ExternalBillingType,
+  FinancialEventSource,
+  PaymentPromiseStatus
+} from "@prisma/client";
 import {
   AsaasClientError,
   createAsaasCustomer,
@@ -22,9 +31,15 @@ import {
   canRequestRefund,
   dateFromCivilInput,
   dueDateFromBillingCompetence,
+  DELINQUENCY_BUCKETS,
+  getCollectionRecommendation,
+  getDaysOverdue,
+  getDelinquencyBucket,
   getBillingAutomationCompetence,
   getNextBillingAutomationRunAt,
   getChargeDisplayStatus,
+  isChargeDelinquent,
+  isPaymentPromiseOverdue,
   shouldRunBillingAutomationRule,
   nextChargeStatusFromAsaas,
   normalizeBillingCompetence,
@@ -1028,6 +1043,268 @@ export async function getStudentFinancialSummary(schoolId: string, studentId: st
     },
     { count: 0, openAmount: 0 }
   );
+}
+
+export type DelinquencyStatusFilter = "NO_GATEWAY" | "ASAAS_PENDING" | "ASAAS_OVERDUE" | "SYNC_ERROR";
+
+export type DelinquencyFilters = {
+  classroomId?: string;
+  competence?: string;
+  bucket?: keyof typeof DELINQUENCY_BUCKETS;
+  guardianId?: string;
+  studentId?: string;
+  status?: DelinquencyStatusFilter;
+  dueFrom?: string;
+  dueTo?: string;
+};
+
+export type CollectionActionInput = {
+  chargeId: string;
+  type: CollectionActionType;
+  channel?: CollectionChannel;
+  note?: string;
+  promisedDate?: string;
+};
+
+function parseOptionalFilterDate(value?: string) {
+  if (!value?.trim()) return undefined;
+  const parsed = dateFromCivilInput(value.trim());
+  if (!parsed) throw new FinancialError("data", "Informe uma data valida.");
+  return parsed;
+}
+
+function delinquencyStatusWhere(status?: DelinquencyStatusFilter): Prisma.ChargeWhereInput {
+  if (status === "NO_GATEWAY") return { provider: null };
+  if (status === "SYNC_ERROR") return { syncError: { not: null } };
+  if (status === "ASAAS_PENDING") {
+    return {
+      provider: "ASAAS",
+      externalStatus: { in: ["PENDING", "PAYMENT_PENDING"] }
+    };
+  }
+  if (status === "ASAAS_OVERDUE") {
+    return {
+      provider: "ASAAS",
+      externalStatus: { in: ["OVERDUE", "PAYMENT_OVERDUE"] }
+    };
+  }
+  return {};
+}
+
+function collectionActionMessage(input: {
+  type: CollectionActionType;
+  channel?: CollectionChannel | null;
+  note?: string | null;
+  promisedDate?: Date | null;
+}) {
+  const typeLabels: Record<CollectionActionType, string> = {
+    CONTACT: "Contato registrado",
+    CONTACTED: "Responsavel marcado como contatado",
+    NOTE: "Observacao adicionada",
+    PAYMENT_PROMISE: "Promessa de pagamento registrada"
+  };
+  const channelLabels: Record<CollectionChannel, string> = {
+    PHONE: "telefone",
+    WHATSAPP: "WhatsApp",
+    EMAIL: "e-mail",
+    IN_PERSON: "presencial",
+    OTHER: "outro"
+  };
+
+  const parts = [typeLabels[input.type]];
+  if (input.channel) parts.push(`Canal: ${channelLabels[input.channel]}.`);
+  if (input.promisedDate) parts.push(`Data prometida: ${toCivilDateKey(input.promisedDate)}.`);
+  if (input.note) parts.push(input.note);
+  return parts.join(" ");
+}
+
+export async function getAdminDelinquencyOverview(schoolId: string, filters: DelinquencyFilters = {}) {
+  await assertFinancialFeature(schoolId);
+
+  const today = todayCivilDate();
+  const dueFrom = parseOptionalFilterDate(filters.dueFrom);
+  const dueTo = parseOptionalFilterDate(filters.dueTo);
+  const competence = filters.competence ? normalizeBillingCompetence(filters.competence) : undefined;
+  if (filters.competence && !competence) throw new FinancialError("competencia", "Competencia invalida.");
+
+  const dueDate: Prisma.DateTimeFilter = {
+    lt: today,
+    ...(dueFrom ? { gte: dueFrom } : {}),
+    ...(dueTo ? { lte: dueTo } : {})
+  };
+
+  const where: Prisma.ChargeWhereInput = {
+    schoolId,
+    status: "PENDING",
+    dueDate,
+    competence,
+    guardianId: filters.guardianId || undefined,
+    studentId: filters.studentId || undefined,
+    enrollment: filters.classroomId ? { classroomId: filters.classroomId } : undefined,
+    ...delinquencyStatusWhere(filters.status)
+  };
+
+  const [charges, students, guardians, classrooms] = await Promise.all([
+    prisma.charge.findMany({
+      where,
+      include: {
+        student: true,
+        guardian: true,
+        enrollment: { include: { classroom: true, academicYear: true } },
+        collectionActions: {
+          include: { createdBy: { select: { name: true } } },
+          orderBy: { createdAt: "desc" },
+          take: 5
+        },
+        financialEvents: {
+          include: { user: { select: { name: true } } },
+          orderBy: { createdAt: "desc" },
+          take: 3
+        }
+      },
+      orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
+      take: 150
+    }),
+    prisma.student.findMany({
+      where: { schoolId },
+      include: {
+        enrollments: {
+          where: { status: "ACTIVE" },
+          include: { classroom: true, academicYear: true },
+          orderBy: [{ academicYear: { year: "desc" } }, { enrolledAt: "desc" }],
+          take: 1
+        }
+      },
+      orderBy: { fullName: "asc" }
+    }),
+    prisma.guardian.findMany({ where: { schoolId }, orderBy: { fullName: "asc" } }),
+    prisma.classroom.findMany({ where: { schoolId }, orderBy: [{ academicYear: { year: "desc" } }, { name: "asc" }] })
+  ]);
+
+  const rows = charges
+    .map((charge) => {
+      const daysOverdue = getDaysOverdue(charge.dueDate);
+      const bucket = getDelinquencyBucket(daysOverdue);
+      const latestAction = charge.collectionActions[0] ?? null;
+      const latestPromise = charge.collectionActions.find((action) => action.type === "PAYMENT_PROMISE") ?? null;
+      const effectivePromiseStatus =
+        latestPromise && isPaymentPromiseOverdue(latestPromise.promisedDate, latestPromise.promiseStatus)
+          ? "OVERDUE"
+          : latestPromise?.promiseStatus ?? null;
+      return {
+        charge,
+        daysOverdue,
+        bucket,
+        recommendation: getCollectionRecommendation(daysOverdue),
+        latestAction,
+        latestPromise,
+        effectivePromiseStatus
+      };
+    })
+    .filter((row) => !filters.bucket || row.bucket === filters.bucket);
+
+  const guardianIds = new Set<string>();
+  const summary = rows.reduce(
+    (accumulator, row) => {
+      const amount = Number(row.charge.amount);
+      accumulator.totalOpen += amount;
+      accumulator.totalOverdue += amount;
+      accumulator.overdueCount += 1;
+      accumulator.overdueAmount += amount;
+      accumulator.totalDelay += row.daysOverdue;
+      accumulator.maxDelay = Math.max(accumulator.maxDelay, row.daysOverdue);
+      accumulator.buckets[row.bucket].count += 1;
+      accumulator.buckets[row.bucket].amount += amount;
+      if (row.charge.guardianId) guardianIds.add(row.charge.guardianId);
+      return accumulator;
+    },
+    {
+      totalOpen: 0,
+      totalOverdue: 0,
+      overdueCount: 0,
+      overdueAmount: 0,
+      totalDelay: 0,
+      maxDelay: 0,
+      buckets: {
+        EM_DIA: { count: 0, amount: 0 },
+        ATRASO_LEVE: { count: 0, amount: 0 },
+        ATRASO_MODERADO: { count: 0, amount: 0 },
+        ATRASO_CRITICO: { count: 0, amount: 0 }
+      } as Record<keyof typeof DELINQUENCY_BUCKETS, { count: number; amount: number }>
+    }
+  );
+
+  return {
+    rows,
+    students,
+    guardians,
+    classrooms,
+    summary: {
+      ...summary,
+      delinquentGuardians: guardianIds.size,
+      averageDelay: summary.overdueCount ? Math.round(summary.totalDelay / summary.overdueCount) : 0
+    }
+  };
+}
+
+export async function registerCollectionAction(schoolId: string, userId: string, input: CollectionActionInput) {
+  await assertFinancialFeature(schoolId);
+
+  const charge = await prisma.charge.findFirst({
+    where: { id: input.chargeId, schoolId },
+    select: { id: true, schoolId: true, status: true, dueDate: true }
+  });
+  if (!charge) throw new FinancialError("cobranca", "Cobranca nao encontrada.");
+  if (!isChargeDelinquent(charge.status, charge.dueDate)) {
+    throw new FinancialError("status", "Esta cobranca nao esta inadimplente.");
+  }
+
+  const note = input.note?.trim() ? input.note.trim().slice(0, 600) : null;
+  const promisedDate = input.type === "PAYMENT_PROMISE" ? parseOptionalCivilDate(input.promisedDate) : null;
+  if (input.type === "PAYMENT_PROMISE" && !promisedDate) {
+    throw new FinancialError("data", "Informe a data prometida.");
+  }
+
+  const promiseStatus: PaymentPromiseStatus | null = input.type === "PAYMENT_PROMISE" ? "OPEN" : null;
+  const message = collectionActionMessage({
+    type: input.type,
+    channel: input.channel,
+    note,
+    promisedDate
+  });
+
+  const action = await prisma.$transaction(async (tx) => {
+    const created = await tx.collectionAction.create({
+      data: {
+        schoolId,
+        chargeId: charge.id,
+        type: input.type,
+        channel: input.channel ?? null,
+        note,
+        promisedDate,
+        promiseStatus,
+        createdById: userId
+      }
+    });
+
+    await recordFinancialEvent(tx, {
+      schoolId,
+      chargeId: charge.id,
+      userId,
+      source: "ADMIN",
+      action:
+        input.type === "PAYMENT_PROMISE"
+          ? "financial_charge.collection_promise"
+          : input.type === "NOTE"
+            ? "financial_charge.collection_note"
+            : "financial_charge.collection_contact",
+      message
+    });
+
+    return created;
+  });
+
+  return action.id;
 }
 
 type BillingClient = TransactionClient | typeof prisma;

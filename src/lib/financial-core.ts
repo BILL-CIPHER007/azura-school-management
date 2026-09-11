@@ -1,6 +1,8 @@
-import type { ChargeStatus, ExternalBillingType, PaymentProvider } from "@prisma/client";
+import type { ChargeStatus, ExternalBillingType, PaymentPromiseStatus, PaymentProvider } from "@prisma/client";
 
 export type ChargeDisplayStatus = ChargeStatus | "OVERDUE";
+export type DelinquencyBucket = "EM_DIA" | "ATRASO_LEVE" | "ATRASO_MODERADO" | "ATRASO_CRITICO";
+export type CollectionRecommendation = "ACOMPANHAR" | "LEMBRAR" | "REFORCAR_CONTATO" | "ATENCAO_PRIORITARIA";
 export type AsaasPaymentStatus =
   | "PENDING"
   | "RECEIVED"
@@ -39,6 +41,23 @@ const asaasStatusAliases: Record<string, AsaasPaymentStatus> = {
   CANCELLED: "CANCELLED",
   CANCELED: "CANCELLED",
   ERROR: "ERROR"
+};
+
+export const DELINQUENCY_BUCKETS: Record<
+  DelinquencyBucket,
+  { label: string; shortLabel: string; minDays: number; maxDays: number | null }
+> = {
+  EM_DIA: { label: "Em dia", shortLabel: "Em dia", minDays: 0, maxDays: 0 },
+  ATRASO_LEVE: { label: "Atraso leve", shortLabel: "1 a 5 dias", minDays: 1, maxDays: 5 },
+  ATRASO_MODERADO: { label: "Atraso moderado", shortLabel: "6 a 15 dias", minDays: 6, maxDays: 15 },
+  ATRASO_CRITICO: { label: "Atraso critico", shortLabel: "16+ dias", minDays: 16, maxDays: null }
+};
+
+export const COLLECTION_RECOMMENDATIONS: Record<CollectionRecommendation, string> = {
+  ACOMPANHAR: "Acompanhar",
+  LEMBRAR: "Lembrar responsavel",
+  REFORCAR_CONTATO: "Reforcar contato",
+  ATENCAO_PRIORITARIA: "Atencao prioritaria"
 };
 
 export function parseCurrencyInput(value: string) {
@@ -131,6 +150,60 @@ export function dueDateFromBillingCompetence(competence: string, dueDay: number)
 export function getChargeDisplayStatus(status: ChargeStatus, dueDate: Date, now = new Date()): ChargeDisplayStatus {
   if (status !== "PENDING") return status;
   return toCivilDateKey(dueDate) < toCivilDateKey(now) ? "OVERDUE" : "PENDING";
+}
+
+export function isChargeOpenForCollection(status: ChargeStatus) {
+  return status === "PENDING";
+}
+
+export function getDaysOverdue(dueDate: Date, now = new Date()) {
+  const due = dateFromCivilInput(toCivilDateKey(dueDate));
+  const today = dateFromCivilInput(toCivilDateKey(now));
+  if (!due || !today) return 0;
+  const diff = Math.floor((today.getTime() - due.getTime()) / (24 * 60 * 60 * 1000));
+  return Math.max(0, diff);
+}
+
+export function isChargeDelinquent(status: ChargeStatus, dueDate: Date, now = new Date()) {
+  return isChargeOpenForCollection(status) && getDaysOverdue(dueDate, now) > 0;
+}
+
+export function getDelinquencyBucket(daysOverdue: number): DelinquencyBucket {
+  if (daysOverdue <= 0) return "EM_DIA";
+  if (daysOverdue <= 5) return "ATRASO_LEVE";
+  if (daysOverdue <= 15) return "ATRASO_MODERADO";
+  return "ATRASO_CRITICO";
+}
+
+export function delinquencyBucketLabel(bucket: DelinquencyBucket) {
+  return DELINQUENCY_BUCKETS[bucket].label;
+}
+
+export function delinquencyBucketTone(bucket: DelinquencyBucket): "neutral" | "success" | "warning" | "danger" | "info" {
+  const tones: Record<DelinquencyBucket, "neutral" | "success" | "warning" | "danger" | "info"> = {
+    EM_DIA: "success",
+    ATRASO_LEVE: "warning",
+    ATRASO_MODERADO: "warning",
+    ATRASO_CRITICO: "danger"
+  };
+  return tones[bucket];
+}
+
+export function getCollectionRecommendation(daysOverdue: number): CollectionRecommendation {
+  const bucket = getDelinquencyBucket(daysOverdue);
+  if (bucket === "ATRASO_LEVE") return "LEMBRAR";
+  if (bucket === "ATRASO_MODERADO") return "REFORCAR_CONTATO";
+  if (bucket === "ATRASO_CRITICO") return "ATENCAO_PRIORITARIA";
+  return "ACOMPANHAR";
+}
+
+export function isPaymentPromiseOverdue(
+  promisedDate?: Date | null,
+  status?: PaymentPromiseStatus | null,
+  now = new Date()
+) {
+  if (!promisedDate || status !== "OPEN") return false;
+  return toCivilDateKey(promisedDate) < toCivilDateKey(now);
 }
 
 export function chargeStatusLabel(status: ChargeDisplayStatus) {
