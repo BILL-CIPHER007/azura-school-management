@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import type { MouseEvent } from "react";
 import { MessageSquareText, X } from "lucide-react";
-import { registerCollectionActionAction } from "@/app/actions/financial";
+import { registerCollectionActionAction, sendCollectionEmailAction } from "@/app/actions/financial";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
@@ -13,6 +14,7 @@ type TemplateOption = {
   label: string;
   title: string;
   body: string;
+  emailSubject: string;
 };
 
 type ChannelOption = {
@@ -32,7 +34,9 @@ export function CollectionCommunicationPanel({
   suggestedType,
   channels,
   registeredAtLabel,
-  recentContactLabel
+  recentContactLabel,
+  triggerLabel = "Preparar mensagem",
+  initialChannel = "WHATSAPP"
 }: {
   chargeId: string;
   guardianName: string;
@@ -46,11 +50,15 @@ export function CollectionCommunicationPanel({
   channels: ChannelOption[];
   registeredAtLabel: string;
   recentContactLabel?: string | null;
+  triggerLabel?: string;
+  initialChannel?: string;
 }) {
   const initialTemplate = templates.find((template) => template.type === suggestedType) ?? templates[0];
   const [open, setOpen] = useState(false);
+  const [selectedChannel, setSelectedChannel] = useState(initialChannel);
   const [selectedType, setSelectedType] = useState(initialTemplate.type);
   const [message, setMessage] = useState(initialTemplate.body);
+  const [subject, setSubject] = useState(initialTemplate.emailSubject);
   const [copied, setCopied] = useState(false);
   const selectedTemplate = useMemo(
     () => templates.find((template) => template.type === selectedType) ?? templates[0],
@@ -61,6 +69,7 @@ export function CollectionCommunicationPanel({
     const nextTemplate = templates.find((template) => template.type === value) ?? templates[0];
     setSelectedType(nextTemplate.type);
     setMessage(nextTemplate.body);
+    setSubject(nextTemplate.emailSubject);
     setCopied(false);
   }
 
@@ -73,6 +82,16 @@ export function CollectionCommunicationPanel({
     setOpen(false);
   }
 
+  function confirmEmailSend(event: MouseEvent<HTMLButtonElement>) {
+    if (!email) {
+      event.preventDefault();
+      return;
+    }
+    const extra = recentContactLabel ? "\n\nJa existe contato recente registrado. Confirme que deseja enviar mesmo assim." : "";
+    const confirmed = window.confirm(`Confirmar envio para ${email}?${extra}`);
+    if (!confirmed) event.preventDefault();
+  }
+
   return (
     <>
       <button
@@ -81,7 +100,7 @@ export function CollectionCommunicationPanel({
         className="flex w-full items-center gap-2 rounded-md border border-school-primary/20 bg-school-primary/5 px-2 py-1 text-left text-xs font-semibold text-school-primary transition-colors hover:bg-school-primary-soft"
       >
         <MessageSquareText className="h-3.5 w-3.5" />
-        Preparar mensagem
+        {triggerLabel}
       </button>
 
       {open ? (
@@ -138,10 +157,11 @@ export function CollectionCommunicationPanel({
                 <input type="hidden" name="chargeId" value={chargeId} />
                 <input type="hidden" name="type" value="CONTACT" />
                 <input type="hidden" name="messageTemplate" value={selectedTemplate.type} />
+                {recentContactLabel ? <input type="hidden" name="acknowledgedRecentContact" value="true" /> : null}
                 <div className="grid gap-2 sm:grid-cols-2">
                   <label className="grid gap-1">
                     <span className="font-semibold text-text-primary">Canal usado manualmente</span>
-                    <Select name="channel" defaultValue="WHATSAPP" required>
+                    <Select name="channel" value={selectedChannel} onChange={(event) => setSelectedChannel(event.target.value)} required>
                       {channels.map((channel) => (
                         <option key={channel.value} value={channel.value}>
                           {channel.label}
@@ -160,6 +180,29 @@ export function CollectionCommunicationPanel({
                     </Select>
                   </label>
                 </div>
+
+                {selectedChannel === "EMAIL" ? (
+                  <div className="grid gap-2 rounded-md border border-school-primary/15 bg-school-primary/5 p-3">
+                    <div>
+                      <p className="text-text-muted">Destinatario</p>
+                      {email ? (
+                        <p className="font-semibold text-school-navy">{email}</p>
+                      ) : (
+                        <p className="font-semibold text-warning">Responsavel sem e-mail valido cadastrado.</p>
+                      )}
+                    </div>
+                    <label className="grid gap-1">
+                      <span className="font-semibold text-text-primary">Assunto</span>
+                      <input
+                        name="subject"
+                        value={subject}
+                        onChange={(event) => setSubject(event.target.value)}
+                        className="rounded-md border border-input bg-surface px-3 py-2 text-sm shadow-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20"
+                        required={selectedChannel === "EMAIL"}
+                      />
+                    </label>
+                  </div>
+                ) : null}
 
                 <div className="rounded-md border border-border bg-background p-3">
                   <p className="font-semibold text-school-navy">{selectedTemplate.title}</p>
@@ -193,6 +236,11 @@ export function CollectionCommunicationPanel({
                     {copied ? "Mensagem copiada" : "Copiar mensagem"}
                   </Button>
                   <Button type="submit">Registrar comunicacao</Button>
+                  {selectedChannel === "EMAIL" ? (
+                    <Button type="submit" formAction={sendCollectionEmailAction} onClick={confirmEmailSend} disabled={!email}>
+                      Enviar e-mail
+                    </Button>
+                  ) : null}
                   <Button type="button" variant="outline" onClick={closePanel}>
                     Fechar
                   </Button>

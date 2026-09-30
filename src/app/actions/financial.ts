@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireSession } from "@/lib/auth";
+import { EmailCommunicationError, sendCollectionEmail } from "@/services/email-communication";
 import {
   cancelCharge,
   createCharge,
@@ -79,6 +80,16 @@ const collectionActionSchema = z.object({
   promisedDate: z.string().optional()
 });
 
+const collectionEmailSchema = z.object({
+  chargeId: z.string().min(1),
+  communicationType: z.string().optional(),
+  messageTemplate: z.string().optional(),
+  messageBody: z.string().trim().min(1),
+  subject: z.string().trim().min(1),
+  note: z.string().optional(),
+  acknowledgedRecentContact: z.preprocess((value) => value === "on" || value === "true", z.boolean().optional())
+});
+
 function redirectWithStatus(path: string, params: Record<string, string>): never {
   const search = new URLSearchParams(params);
   redirect(`${path}?${search.toString()}`);
@@ -86,6 +97,7 @@ function redirectWithStatus(path: string, params: Record<string, string>): never
 
 function financialErrorCode(error: unknown) {
   if (error instanceof FinancialError) return error.code;
+  if (error instanceof EmailCommunicationError) return error.code;
   if (error instanceof z.ZodError) return "validacao";
   throw error;
 }
@@ -229,6 +241,25 @@ export async function registerCollectionActionAction(formData: FormData) {
       })
     );
   } catch (error) {
+    redirect(delinquencyPath({ erro: financialErrorCode(error) }));
+  }
+}
+
+export async function sendCollectionEmailAction(formData: FormData) {
+  const session = await requireSession(["ADMIN"]);
+  const parsed = collectionEmailSchema.safeParse(Object.fromEntries(formData));
+
+  if (!parsed.success) {
+    redirect(delinquencyPath({ erro: "validacao" }));
+  }
+
+  try {
+    await sendCollectionEmail(session.schoolId, session.id, parsed.data);
+    revalidateFinancialPaths();
+    revalidatePath("/admin/financeiro/inadimplencia");
+    redirect(delinquencyPath({ sucesso: "email" }));
+  } catch (error) {
+    revalidatePath("/admin/financeiro/inadimplencia");
     redirect(delinquencyPath({ erro: financialErrorCode(error) }));
   }
 }

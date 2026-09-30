@@ -35,13 +35,15 @@ import {
   getAdminDelinquencyOverview,
   type DelinquencyStatusFilter
 } from "@/services/financial";
+import { buildCollectionEmailSubject, maskEmail } from "@/services/email-communication";
 
 export const dynamic = "force-dynamic";
 
 const successMessages: Record<string, string> = {
   contato: "Contato registrado com sucesso.",
   observacao: "Observacao adicionada com sucesso.",
-  promessa: "Promessa de pagamento registrada com sucesso."
+  promessa: "Promessa de pagamento registrada com sucesso.",
+  email: "E-mail enviado e registrado com sucesso."
 };
 
 const errorMessages: Record<string, string> = {
@@ -51,7 +53,13 @@ const errorMessages: Record<string, string> = {
   status: "Esta cobranca nao esta inadimplente.",
   data: "Informe uma data valida.",
   competencia: "Competencia invalida.",
-  mensagem: "A mensagem possui dados ou termos nao permitidos."
+  mensagem: "A mensagem possui dados ou termos nao permitidos.",
+  destinatario: "O responsavel nao possui e-mail valido cadastrado.",
+  assunto: "Revise o assunto do e-mail.",
+  configuracao: "Envio por e-mail ainda nao esta configurado para producao.",
+  recente: "Ja existe contato recente. Confirme conscientemente antes de enviar.",
+  duplicidade: "Aguarde alguns segundos antes de reenviar este e-mail.",
+  provider: "Nao foi possivel enviar o e-mail. A tentativa foi registrada."
 };
 
 const statusFilters: Array<{ value: "" | DelinquencyStatusFilter; label: string }> = [
@@ -67,6 +75,18 @@ const promiseStatusLabels = {
   FULFILLED: "Promessa cumprida",
   OVERDUE: "Promessa vencida",
   CANCELED: "Promessa cancelada"
+};
+
+const deliveryStatusLabels: Record<string, string> = {
+  PENDING: "Envio pendente",
+  SENT: "E-mail enviado",
+  FAILED: "E-mail falhou"
+};
+
+const deliveryStatusTone: Record<string, "info" | "success" | "danger" | "warning" | "neutral"> = {
+  PENDING: "info",
+  SENT: "success",
+  FAILED: "danger"
 };
 
 function compactClassroom(row: Awaited<ReturnType<typeof getAdminDelinquencyOverview>>["rows"][number]) {
@@ -267,7 +287,8 @@ export default async function AdminDelinquencyPage({
                       type,
                       label: collectionCommunicationTypeLabels[type],
                       title: generated.title,
-                      body: generated.body
+                      body: generated.body,
+                      emailSubject: buildCollectionEmailSubject({ communicationType: type, schoolName: overview.school.name })
                     };
                   });
                   const channelOptions = Object.entries(collectionChannelLabels).map(([value, label]) => ({ value, label }));
@@ -402,6 +423,18 @@ export default async function AdminDelinquencyPage({
                                     {action.createdBy?.name ? ` - ${action.createdBy.name}` : ""}
                                   </p>
                                   {action.channel ? <p className="text-text-muted">Canal: {collectionChannelLabels[action.channel]}</p> : null}
+                                  {action.deliveryStatus ? (
+                                    <div className="mt-1 flex flex-wrap gap-1">
+                                      <Badge variant={deliveryStatusTone[action.deliveryStatus] ?? "neutral"}>
+                                        {deliveryStatusLabels[action.deliveryStatus] ?? action.deliveryStatus}
+                                      </Badge>
+                                      {action.provider ? <Badge variant="neutral">{action.provider}</Badge> : null}
+                                    </div>
+                                  ) : null}
+                                  {action.recipient ? <p className="text-text-muted">Destinatario: {maskEmail(action.recipient)}</p> : null}
+                                  {action.subject ? <p className="text-text-muted">Assunto: {action.subject}</p> : null}
+                                  {action.sentAt ? <p className="text-text-muted">Enviado em {formatDateTime(action.sentAt)}</p> : null}
+                                  {action.deliveryError ? <p className="text-warning">Falha: {action.deliveryError}</p> : null}
                                   {action.promisedDate ? <p className="text-text-muted">Prometido para {formatDate(action.promisedDate)}</p> : null}
                                   {action.messageBody ? (
                                     <details className="mt-1 rounded border border-border bg-surface p-2">
@@ -410,6 +443,30 @@ export default async function AdminDelinquencyPage({
                                     </details>
                                   ) : null}
                                   {action.note ? <p className="mt-1 whitespace-normal text-text-secondary">{action.note}</p> : null}
+                                  {action.channel === "EMAIL" && action.deliveryStatus === "FAILED" ? (
+                                    <div className="mt-2">
+                                      <CollectionCommunicationPanel
+                                        chargeId={row.charge.id}
+                                        guardianName={row.charge.guardian?.fullName ?? "Responsavel nao informado"}
+                                        studentName={row.charge.student.fullName}
+                                        chargeLabel={chargeLabel}
+                                        overdueLabel={`${row.daysOverdue} dias - ${delinquencyBucketLabel(row.bucket)}`}
+                                        phone={row.charge.guardian?.phone}
+                                        email={row.charge.guardian?.email}
+                                        templates={messageTemplates}
+                                        suggestedType={row.generatedCommunication.type}
+                                        channels={channelOptions}
+                                        registeredAtLabel={formatDateTime(new Date())}
+                                        recentContactLabel={
+                                          row.recentCommunication
+                                            ? `Ultimo contato: ${formatDateTime(row.recentCommunication.createdAt)}`
+                                            : null
+                                        }
+                                        triggerLabel="Tentar novamente"
+                                        initialChannel="EMAIL"
+                                      />
+                                    </div>
+                                  ) : null}
                                 </div>
                               ))}
                             </div>
