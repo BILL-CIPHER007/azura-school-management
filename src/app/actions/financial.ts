@@ -72,6 +72,9 @@ const collectionActionSchema = z.object({
     (value) => (value === "" ? undefined : value),
     z.enum(["PHONE", "WHATSAPP", "EMAIL", "IN_PERSON", "OTHER"]).optional()
   ),
+  communicationType: z.string().optional(),
+  messageTemplate: z.string().optional(),
+  messageBody: z.string().optional(),
   note: z.string().optional(),
   promisedDate: z.string().optional()
 });

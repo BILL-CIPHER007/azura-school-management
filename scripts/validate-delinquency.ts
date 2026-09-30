@@ -29,6 +29,10 @@ const adminDelinquencyPage = readFileSync(
   join(root, "src", "app", "admin", "financeiro", "inadimplencia", "page.tsx"),
   "utf8"
 );
+const collectionCommunicationPanel = readFileSync(
+  join(root, "src", "app", "admin", "financeiro", "inadimplencia", "collection-communication-panel.tsx"),
+  "utf8"
+);
 const guardianFinancialPage = readFileSync(
   join(root, "src", "app", "responsavel", "financeiro", "page.tsx"),
   "utf8"
@@ -54,7 +58,8 @@ assert.match(migration, /REFERENCES "Charge"\("id"\) ON DELETE CASCADE/);
 assert.doesNotMatch(migration, /ALTER TABLE "Charge" ADD COLUMN/);
 
 assert.match(adminDelinquencyPage, /Lista de inadimplentes/);
-assert.match(adminDelinquencyPage, /Registrar contato/);
+assert.match(adminDelinquencyPage, /CollectionCommunicationPanel/);
+assert.match(collectionCommunicationPanel, /Preparar mensagem/);
 assert.match(adminDelinquencyPage, /Registrar promessa/);
 assert.doesNotMatch(guardianFinancialPage, /ATRASO_CRITICO|ATRASO_MODERADO|ATRASO_LEVE/);
 

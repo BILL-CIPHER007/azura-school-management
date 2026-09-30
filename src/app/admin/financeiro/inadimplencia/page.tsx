@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { AlertTriangle, CalendarClock, CircleDollarSign, History, PhoneCall, UsersRound } from "lucide-react";
+import { AlertTriangle, CalendarClock, CircleDollarSign, History, UsersRound } from "lucide-react";
 import { registerCollectionActionAction } from "@/app/actions/financial";
+import { CollectionCommunicationPanel } from "@/app/admin/financeiro/inadimplencia/collection-communication-panel";
 import { AdminEmptyState, AdminMetric, AdminPageHeader, AdminSection, AdminToolbar } from "@/components/admin/admin-ui";
 import { ConfirmSubmitButton } from "@/components/admin/confirm-submit-button";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +10,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { requireSession } from "@/lib/auth";
+import {
+  collectionActionLabels,
+  collectionChannelLabels,
+  collectionCommunicationTypeLabels,
+  collectionCommunicationTypes,
+  generateCollectionCommunicationMessage
+} from "@/lib/collection-communication";
 import {
   asaasPaymentStatusLabel,
   asaasPaymentStatusTone,
@@ -42,7 +50,8 @@ const errorMessages: Record<string, string> = {
   cobranca: "Cobranca nao encontrada.",
   status: "Esta cobranca nao esta inadimplente.",
   data: "Informe uma data valida.",
-  competencia: "Competencia invalida."
+  competencia: "Competencia invalida.",
+  mensagem: "A mensagem possui dados ou termos nao permitidos."
 };
 
 const statusFilters: Array<{ value: "" | DelinquencyStatusFilter; label: string }> = [
@@ -52,21 +61,6 @@ const statusFilters: Array<{ value: "" | DelinquencyStatusFilter; label: string 
   { value: "ASAAS_OVERDUE", label: "Asaas vencido" },
   { value: "SYNC_ERROR", label: "Falha de sincronizacao" }
 ];
-
-const channelLabels = {
-  PHONE: "Telefone",
-  WHATSAPP: "WhatsApp",
-  EMAIL: "E-mail",
-  IN_PERSON: "Presencial",
-  OTHER: "Outro"
-};
-
-const actionLabels = {
-  CONTACT: "Contato realizado",
-  CONTACTED: "Marcado como contatado",
-  NOTE: "Observacao",
-  PAYMENT_PROMISE: "Promessa de pagamento"
-};
 
 const promiseStatusLabels = {
   OPEN: "Promessa aberta",
@@ -83,7 +77,10 @@ function compactClassroom(row: Awaited<ReturnType<typeof getAdminDelinquencyOver
 
 function latestActionText(row: Awaited<ReturnType<typeof getAdminDelinquencyOverview>>["rows"][number]) {
   if (!row.latestAction) return "Sem contato registrado";
-  return actionLabels[row.latestAction.type];
+  if (row.latestAction.communicationType && row.latestAction.communicationType in collectionCommunicationTypeLabels) {
+    return collectionCommunicationTypeLabels[row.latestAction.communicationType as keyof typeof collectionCommunicationTypeLabels];
+  }
+  return collectionActionLabels[row.latestAction.type];
 }
 
 export default async function AdminDelinquencyPage({
@@ -252,8 +249,34 @@ export default async function AdminDelinquencyPage({
                 </tr>
               </thead>
               <tbody>
-                {overview.rows.map((row) => (
-                  <tr key={row.charge.id}>
+                {overview.rows.map((row) => {
+                  const communicationContext = {
+                    guardianName: row.charge.guardian?.fullName,
+                    studentName: row.charge.student.fullName,
+                    schoolName: overview.school.name,
+                    competence: row.charge.competence,
+                    amount: row.charge.amount,
+                    dueDate: row.charge.dueDate,
+                    daysOverdue: row.daysOverdue,
+                    promisedDate: row.latestPromise?.promisedDate ?? null,
+                    promiseStatus: row.effectivePromiseStatus
+                  };
+                  const messageTemplates = collectionCommunicationTypes.map((type) => {
+                    const generated = generateCollectionCommunicationMessage(communicationContext, type);
+                    return {
+                      type,
+                      label: collectionCommunicationTypeLabels[type],
+                      title: generated.title,
+                      body: generated.body
+                    };
+                  });
+                  const channelOptions = Object.entries(collectionChannelLabels).map(([value, label]) => ({ value, label }));
+                  const chargeLabel = `${row.charge.reference} - ${
+                    row.charge.competence ? billingCompetenceLabel(row.charge.competence) : "Sem competencia"
+                  } - ${formatCurrencyBRL(row.charge.amount)}`;
+
+                  return (
+                    <tr key={row.charge.id}>
                     <td>
                       <Link href={`/admin/alunos/${row.charge.studentId}`} className="font-semibold text-school-navy hover:underline">
                         {row.charge.student.fullName}
@@ -307,29 +330,24 @@ export default async function AdminDelinquencyPage({
                     </td>
                     <td>
                       <div className="flex min-w-[260px] flex-wrap gap-2">
-                        <details className="w-full rounded-md border border-border bg-surface px-2 py-1">
-                          <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-semibold text-school-primary">
-                            <PhoneCall className="h-3.5 w-3.5" />
-                            Registrar contato
-                          </summary>
-                          <form action={registerCollectionActionAction} className="mt-3 grid gap-2">
-                            <input type="hidden" name="chargeId" value={row.charge.id} />
-                            <input type="hidden" name="type" value="CONTACT" />
-                            <Select name="channel" defaultValue="WHATSAPP" required>
-                              {Object.entries(channelLabels).map(([value, label]) => (
-                                <option key={value} value={value}>
-                                  {label}
-                                </option>
-                              ))}
-                            </Select>
-                            <textarea
-                              name="note"
-                              placeholder="Resumo do contato"
-                              className="min-h-20 rounded-md border border-input bg-surface px-3 py-2 text-sm shadow-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20"
-                            />
-                            <Button type="submit" size="sm">Salvar contato</Button>
-                          </form>
-                        </details>
+                        <CollectionCommunicationPanel
+                          chargeId={row.charge.id}
+                          guardianName={row.charge.guardian?.fullName ?? "Responsavel nao informado"}
+                          studentName={row.charge.student.fullName}
+                          chargeLabel={chargeLabel}
+                          overdueLabel={`${row.daysOverdue} dias - ${delinquencyBucketLabel(row.bucket)}`}
+                          phone={row.charge.guardian?.phone}
+                          email={row.charge.guardian?.email}
+                          templates={messageTemplates}
+                          suggestedType={row.generatedCommunication.type}
+                          channels={channelOptions}
+                          registeredAtLabel={formatDateTime(new Date())}
+                          recentContactLabel={
+                            row.recentCommunication
+                              ? `Ultimo contato: ${formatDateTime(row.recentCommunication.createdAt)}`
+                              : null
+                          }
+                        />
                         <form action={registerCollectionActionAction}>
                           <input type="hidden" name="chargeId" value={row.charge.id} />
                           <input type="hidden" name="type" value="CONTACTED" />
@@ -374,13 +392,23 @@ export default async function AdminDelinquencyPage({
                             <div className="mt-3 space-y-2">
                               {row.charge.collectionActions.map((action) => (
                                 <div key={action.id} className="rounded-md bg-background p-2 text-xs">
-                                  <p className="font-semibold text-school-navy">{actionLabels[action.type]}</p>
+                                  <p className="font-semibold text-school-navy">
+                                    {action.communicationType && action.communicationType in collectionCommunicationTypeLabels
+                                      ? collectionCommunicationTypeLabels[action.communicationType as keyof typeof collectionCommunicationTypeLabels]
+                                      : collectionActionLabels[action.type]}
+                                  </p>
                                   <p className="text-text-muted">
                                     {formatDateTime(action.createdAt)}
                                     {action.createdBy?.name ? ` - ${action.createdBy.name}` : ""}
                                   </p>
-                                  {action.channel ? <p className="text-text-muted">Canal: {channelLabels[action.channel]}</p> : null}
+                                  {action.channel ? <p className="text-text-muted">Canal: {collectionChannelLabels[action.channel]}</p> : null}
                                   {action.promisedDate ? <p className="text-text-muted">Prometido para {formatDate(action.promisedDate)}</p> : null}
+                                  {action.messageBody ? (
+                                    <details className="mt-1 rounded border border-border bg-surface p-2">
+                                      <summary className="cursor-pointer list-none font-semibold text-school-primary">Ver mensagem registrada</summary>
+                                      <p className="mt-2 whitespace-pre-wrap text-text-secondary">{action.messageBody}</p>
+                                    </details>
+                                  ) : null}
                                   {action.note ? <p className="mt-1 whitespace-normal text-text-secondary">{action.note}</p> : null}
                                 </div>
                               ))}
@@ -390,7 +418,8 @@ export default async function AdminDelinquencyPage({
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

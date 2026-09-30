@@ -26,6 +26,15 @@ import {
 } from "@/lib/asaas-client";
 import { hasCommercialFeature } from "@/lib/commercial-plans";
 import {
+  assertCollectionMessagePrivacy,
+  collectionCommunicationTypeLabels,
+  generateCollectionCommunicationMessage,
+  getRecentCommunicationCutoff,
+  isCollectionCommunicationType,
+  suggestCollectionCommunicationType,
+  type CollectionCommunicationType
+} from "@/lib/collection-communication";
+import {
   billingCompetenceLabel,
   canCancelAsaasPaymentStatus,
   canRequestRefund,
@@ -86,7 +95,8 @@ export class FinancialError extends Error {
       | "competencia"
       | "lote"
       | "emissao"
-      | "automacao",
+      | "automacao"
+      | "mensagem",
     message: string
   ) {
     super(message);
@@ -1062,6 +1072,9 @@ export type CollectionActionInput = {
   chargeId: string;
   type: CollectionActionType;
   channel?: CollectionChannel;
+  communicationType?: string;
+  messageTemplate?: string;
+  messageBody?: string;
   note?: string;
   promisedDate?: string;
 };
@@ -1144,7 +1157,11 @@ export async function getAdminDelinquencyOverview(schoolId: string, filters: Del
     ...delinquencyStatusWhere(filters.status)
   };
 
-  const [charges, students, guardians, classrooms] = await Promise.all([
+  const [school, charges, students, guardians, classrooms] = await Promise.all([
+    prisma.school.findFirstOrThrow({
+      where: { id: schoolId },
+      select: { id: true, name: true, plan: true }
+    }),
     prisma.charge.findMany({
       where,
       include: {
@@ -1154,7 +1171,7 @@ export async function getAdminDelinquencyOverview(schoolId: string, filters: Del
         collectionActions: {
           include: { createdBy: { select: { name: true } } },
           orderBy: { createdAt: "desc" },
-          take: 5
+          take: 8
         },
         financialEvents: {
           include: { user: { select: { name: true } } },
@@ -1191,11 +1208,39 @@ export async function getAdminDelinquencyOverview(schoolId: string, filters: Del
         latestPromise && isPaymentPromiseOverdue(latestPromise.promisedDate, latestPromise.promiseStatus)
           ? "OVERDUE"
           : latestPromise?.promiseStatus ?? null;
+      const communicationType = suggestCollectionCommunicationType({
+        daysOverdue,
+        promisedDate: latestPromise?.promisedDate ?? null,
+        promiseStatus: effectivePromiseStatus
+      });
+      const recentCommunication =
+        charge.collectionActions.find(
+          (action) =>
+            action.type === "CONTACT" &&
+            Boolean(action.communicationType || action.messageBody) &&
+            action.createdAt >= getRecentCommunicationCutoff()
+        ) ?? null;
+      const generatedCommunication = generateCollectionCommunicationMessage(
+        {
+          guardianName: charge.guardian?.fullName,
+          studentName: charge.student.fullName,
+          schoolName: school.name,
+          competence: charge.competence,
+          amount: charge.amount,
+          dueDate: charge.dueDate,
+          daysOverdue,
+          promisedDate: latestPromise?.promisedDate ?? null,
+          promiseStatus: effectivePromiseStatus
+        },
+        communicationType
+      );
       return {
         charge,
         daysOverdue,
         bucket,
         recommendation: getCollectionRecommendation(daysOverdue),
+        generatedCommunication,
+        recentCommunication,
         latestAction,
         latestPromise,
         effectivePromiseStatus
@@ -1235,6 +1280,7 @@ export async function getAdminDelinquencyOverview(schoolId: string, filters: Del
   );
 
   return {
+    school,
     rows,
     students,
     guardians,
@@ -1259,6 +1305,17 @@ export async function registerCollectionAction(schoolId: string, userId: string,
     throw new FinancialError("status", "Esta cobranca nao esta inadimplente.");
   }
 
+  const communicationType: CollectionCommunicationType | null =
+    input.communicationType && isCollectionCommunicationType(input.communicationType) ? input.communicationType : null;
+  if (input.communicationType && !communicationType) {
+    throw new FinancialError("mensagem", "Tipo de comunicacao invalido.");
+  }
+  const messageTemplate = input.messageTemplate?.trim() ? input.messageTemplate.trim().slice(0, 80) : communicationType;
+  const messageBody = input.messageBody?.trim() ? input.messageBody.trim().slice(0, 2500) : null;
+  if (messageBody && !assertCollectionMessagePrivacy(messageBody)) {
+    throw new FinancialError("mensagem", "A mensagem contem termos ou dados nao permitidos.");
+  }
+
   const note = input.note?.trim() ? input.note.trim().slice(0, 600) : null;
   const promisedDate = input.type === "PAYMENT_PROMISE" ? parseOptionalCivilDate(input.promisedDate) : null;
   if (input.type === "PAYMENT_PROMISE" && !promisedDate) {
@@ -1269,7 +1326,9 @@ export async function registerCollectionAction(schoolId: string, userId: string,
   const message = collectionActionMessage({
     type: input.type,
     channel: input.channel,
-    note,
+    note: messageBody
+      ? `${communicationType ? collectionCommunicationTypeLabels[communicationType] : "Comunicacao registrada"}. ${note ?? ""}`.trim()
+      : note,
     promisedDate
   });
 
@@ -1280,6 +1339,9 @@ export async function registerCollectionAction(schoolId: string, userId: string,
         chargeId: charge.id,
         type: input.type,
         channel: input.channel ?? null,
+        communicationType,
+        messageTemplate,
+        messageBody,
         note,
         promisedDate,
         promiseStatus,

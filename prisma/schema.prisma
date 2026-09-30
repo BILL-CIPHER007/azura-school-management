@@ -409,6 +409,9 @@ model CollectionAction {
   chargeId      String
   type          CollectionActionType
   channel       CollectionChannel?
+  communicationType String?
+  messageTemplate   String?
+  messageBody       String?
   note          String?
   promisedDate  DateTime?
   promiseStatus PaymentPromiseStatus?
@@ -420,6 +423,7 @@ model CollectionAction {
 
   @@index([schoolId, chargeId, createdAt])
   @@index([schoolId, type, createdAt])
+  @@index([schoolId, communicationType, createdAt])
   @@index([schoolId, promiseStatus, promisedDate])
 }
 
