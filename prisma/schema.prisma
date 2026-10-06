@@ -24,6 +24,13 @@ enum SchoolPlan {
   PROFISSIONAL
 }
 
+enum StudentCapacity {
+  UP_TO_200
+  UP_TO_300
+  UP_TO_500
+  CUSTOM
+}
+
 enum ChargeStatus {
   PENDING
   PAID
@@ -138,6 +145,7 @@ model School {
   name                      String
   slug                      String                     @unique
   plan                      SchoolPlan                 @default(ESSENCIAL)
+  studentCapacity           StudentCapacity            @default(UP_TO_200)
   createdAt                 DateTime                   @default(now())
   updatedAt                 DateTime                   @updatedAt
   users                     User[]

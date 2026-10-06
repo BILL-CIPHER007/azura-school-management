@@ -10,6 +10,7 @@ import { announcementCanUseClassroom, announcementRequiresClassroom } from "@/li
 import { findAcademicPeriodForDate, getAcademicPeriodClosingState, isAcademicPeriodClosed } from "@/lib/academic-closing";
 import { buildAuditDiff, recordAuditLog } from "@/lib/audit";
 import { calendarDateFromInput, calendarDateTimeFromInput } from "@/lib/calendar-events";
+import { getStudentUsageMessage } from "@/lib/commercial-plans";
 import {
   initialStudentCsvImportState,
   parseStudentImportCsv,
@@ -563,17 +564,7 @@ export async function confirmStudentCsvImport(
   }
 
   const capacity = await prisma.$transaction((tx) => getActiveStudentCapacity(tx, session.schoolId, preview.validRows));
-  if (!capacity.allowed) {
-    return {
-      ...preview,
-      status: "error",
-      payload: undefined,
-      message:
-        `O plano atual permite até ${capacity.maxActiveStudents} alunos ativos. ` +
-        `A escola possui ${capacity.currentActiveStudents} aluno(s) ativo(s) e o arquivo adicionaria ${capacity.incomingStudents}. ` +
-        `Reduza ${capacity.exceededBy} linha(s) ou altere o plano antes de confirmar.`
-    };
-  }
+  const capacityMessage = capacity.status === "NORMAL" ? null : getStudentUsageMessage(capacity);
 
   let created = 0;
   try {
@@ -665,7 +656,12 @@ export async function confirmStudentCsvImport(
     totalRows: rows.length,
     validRows: rows.length,
     createdRows: created,
-    message: `${created} matrícula${created === 1 ? "" : "s"} criada${created === 1 ? "" : "s"} com sucesso.`
+    message: [
+      `${created} matrícula${created === 1 ? "" : "s"} criada${created === 1 ? "" : "s"} com sucesso.`,
+      capacityMessage
+    ]
+      .filter(Boolean)
+      .join(" ")
   };
 }
 

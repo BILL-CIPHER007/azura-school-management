@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { audienceLabel, shiftLabel } from "@/lib/admin-labels";
 import { requireSession } from "@/lib/auth";
 import { formatEventDateTime } from "@/lib/calendar-events";
+import { getStudentUsageMessage } from "@/lib/commercial-plans";
 import { formatDate, formatPercent } from "@/lib/utils";
 import { getAdminAttentionStudents, getAdminDashboard } from "@/services/school-data";
 
@@ -57,6 +58,19 @@ export default async function AdminDashboardPage() {
           </div>
         </div>
       </section>
+
+      {dashboard.commercialUsage.status !== "NORMAL" ? (
+        <section
+          className={`rounded-lg border p-3 text-sm ${
+            dashboard.commercialUsage.status === "OVER_CAPACITY"
+              ? "border-danger/20 bg-danger-soft text-danger"
+              : "border-warning/20 bg-warning-soft text-warning"
+          }`}
+        >
+          <strong className="block text-school-navy">Capacidade contratada</strong>
+          <span className="mt-1 block text-text-secondary">{getStudentUsageMessage(dashboard.commercialUsage)}</span>
+        </section>
+      ) : null}
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         <AdminMetric label="Alunos ativos" value={dashboard.metrics.students} detail="na base" icon={GraduationCap} />

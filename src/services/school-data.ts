@@ -9,6 +9,7 @@ import {
 } from "@/lib/academic-rules";
 import { buildStudentAcademicHistory } from "@/lib/academic-history";
 import { guardianAnnouncementWhere, studentAnnouncementWhere, teacherAnnouncementWhere } from "@/lib/announcements";
+import { getStudentUsage } from "@/lib/commercial-plans";
 import { prisma } from "@/lib/prisma";
 import { average, gradeSituation } from "@/lib/utils";
 
@@ -130,6 +131,8 @@ function sortTeacherAssignments<
 
 export async function getAdminDashboard(schoolId: string) {
   const [
+    school,
+    activeStudentGroups,
     students,
     teachers,
     classrooms,
@@ -141,6 +144,14 @@ export async function getAdminDashboard(schoolId: string) {
     classroomSummaries,
     attentionEnrollments
   ] = await Promise.all([
+    prisma.school.findUniqueOrThrow({
+      where: { id: schoolId },
+      select: { plan: true, studentCapacity: true }
+    }),
+    prisma.enrollment.groupBy({
+      by: ["studentId"],
+      where: { schoolId, status: "ACTIVE" }
+    }),
     prisma.student.count({ where: { schoolId } }),
     prisma.teacher.count({ where: { schoolId, status: "ACTIVE" } }),
     prisma.classroom.count({ where: { schoolId } }),
@@ -201,6 +212,11 @@ export async function getAdminDashboard(schoolId: string) {
       activeEnrollments,
       attendanceAverage,
       belowExpected
+    },
+    commercialUsage: {
+      plan: school.plan,
+      studentCapacity: school.studentCapacity,
+      ...getStudentUsage(activeStudentGroups.length, school.studentCapacity)
     },
     recentEnrollments,
     events,

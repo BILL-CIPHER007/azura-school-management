@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { schoolConfig } from "@/config/school";
 import { getAcademicPeriodClosingState, isAcademicYearClosed } from "@/lib/academic-closing";
 import { auditActionLabel, auditEntityLabel } from "@/lib/admin-labels";
-import { formatSchoolPlan, getPlanConfig } from "@/lib/commercial-plans";
+import { formatSchoolPlan, getStudentCapacityLabel, getStudentUsage, getStudentUsageMessage } from "@/lib/commercial-plans";
 import { requireSession } from "@/lib/auth";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { getSchoolSettings } from "@/services/school-data";
@@ -155,9 +155,9 @@ export default async function SettingsPage({
   const activeAcademicYear = settings.academicYears.find((year) => year.isActive) ?? null;
   const periodHealth = buildPeriodHealth(settings.periods);
   const feedback = settingsFeedback(query);
-  const planConfig = getPlanConfig(settings.school.plan);
-  const studentLimitUsage = Math.round((settings.activeStudentsCount / planConfig.maxActiveStudents) * 100);
-  const isNearStudentLimit = studentLimitUsage >= 90;
+  const studentUsage = getStudentUsage(settings.activeStudentsCount, settings.school.studentCapacity);
+  const studentLimitUsage = studentUsage.usagePercent ?? 0;
+  const isNearStudentLimit = studentUsage.status !== "NORMAL";
 
   return (
     <main className="page-shell">
@@ -212,37 +212,43 @@ export default async function SettingsPage({
           </p>
         </AdminSection>
 
-        <AdminSection title="Plano atual" description="Limites comerciais ativos para esta escola.">
+        <AdminSection title="Plano e capacidade" description="Recursos funcionais e capacidade comercial contratada.">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-md border border-border bg-muted/30 p-3">
-              <span className="text-xs font-semibold uppercase text-text-muted">Plano contratado</span>
+              <span className="text-xs font-semibold uppercase text-text-muted">Plano funcional</span>
               <p className="mt-2 text-2xl font-semibold text-school-navy">{formatSchoolPlan(settings.school.plan)}</p>
-              <p className="mt-1 text-sm text-text-secondary">Configuração aplicada pelo sistema.</p>
+              <p className="mt-1 text-sm text-text-secondary">Define os recursos disponíveis no portal.</p>
             </div>
             <div
               className={`rounded-md border p-3 ${
                 isNearStudentLimit ? "border-warning/30 bg-warning-soft/30" : "border-success/20 bg-success-soft/20"
               }`}
             >
-              <span className="text-xs font-semibold uppercase text-text-muted">Alunos ativos</span>
+              <span className="text-xs font-semibold uppercase text-text-muted">Capacidade contratada</span>
               <p className="mt-2 text-2xl font-semibold text-school-navy">
-                {settings.activeStudentsCount} de {planConfig.maxActiveStudents}
+                {studentUsage.maxActiveStudents === null
+                  ? `${settings.activeStudentsCount} alunos ativos`
+                  : `${settings.activeStudentsCount} de ${studentUsage.maxActiveStudents}`}
               </p>
-              <div className="mt-3 h-2 overflow-hidden rounded-full bg-border">
-                <div
-                  className={`h-full rounded-full ${isNearStudentLimit ? "bg-warning" : "bg-success"}`}
-                  style={{ width: `${Math.min(studentLimitUsage, 100)}%` }}
-                />
-              </div>
+              {studentUsage.maxActiveStudents === null ? (
+                <p className="mt-3 text-sm font-medium text-text-secondary">
+                  {getStudentCapacityLabel(settings.school.studentCapacity)}
+                </p>
+              ) : (
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-border">
+                  <div
+                    className={`h-full rounded-full ${isNearStudentLimit ? "bg-warning" : "bg-success"}`}
+                    style={{ width: `${Math.min(studentLimitUsage, 100)}%` }}
+                  />
+                </div>
+              )}
               <p className="mt-2 text-sm text-text-secondary">
-                {isNearStudentLimit
-                  ? "A escola está próxima do limite de alunos ativos do plano."
-                  : "Capacidade disponível para novas matrículas ativas."}
+                {getStudentUsageMessage(studentUsage)}
               </p>
             </div>
           </div>
           <p className="mt-4 rounded-md border border-border bg-muted/40 p-3 text-sm leading-6 text-text-secondary">
-            O plano é somente leitura nesta etapa. Mudanças comerciais devem ser feitas fora do portal administrativo.
+            O plano e a capacidade são somente leitura nesta etapa. Mudanças comerciais devem ser feitas fora do portal administrativo.
           </p>
         </AdminSection>
 

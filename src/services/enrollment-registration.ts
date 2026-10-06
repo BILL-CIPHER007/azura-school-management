@@ -3,7 +3,7 @@ import type { Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { getDemoPassword, schoolConfig } from "@/config/school";
 import { recordAuditLog } from "@/lib/audit";
-import { checkActiveStudentLimit, formatSchoolPlan } from "@/lib/commercial-plans";
+import { getStudentUsage } from "@/lib/commercial-plans";
 import { prisma } from "@/lib/prisma";
 
 export type EnrollmentRegistrationErrorCode =
@@ -14,8 +14,7 @@ export type EnrollmentRegistrationErrorCode =
   | "responsavel-obrigatorio"
   | "responsavel-conflito"
   | "email-responsavel"
-  | "matricula-duplicada"
-  | "limite-alunos-ativos";
+  | "matricula-duplicada";
 
 export class EnrollmentRegistrationError extends Error {
   constructor(public code: EnrollmentRegistrationErrorCode, message: string) {
@@ -78,7 +77,7 @@ export async function getActiveStudentCapacity(tx: TransactionClient, schoolId: 
   const [school, activeStudentGroups] = await Promise.all([
     tx.school.findFirstOrThrow({
       where: { id: schoolId },
-      select: { plan: true }
+      select: { plan: true, studentCapacity: true }
     }),
     tx.enrollment.groupBy({
       by: ["studentId"],
@@ -88,22 +87,13 @@ export async function getActiveStudentCapacity(tx: TransactionClient, schoolId: 
 
   return {
     plan: school.plan,
-    ...checkActiveStudentLimit(school.plan, activeStudentGroups.length, incomingStudents)
+    studentCapacity: school.studentCapacity,
+    ...getStudentUsage(activeStudentGroups.length, school.studentCapacity, incomingStudents)
   };
 }
 
 export async function assertActiveStudentCapacity(tx: TransactionClient, schoolId: string, incomingStudents = 1) {
-  const capacity = await getActiveStudentCapacity(tx, schoolId, incomingStudents);
-
-  if (!capacity.allowed) {
-    throw new EnrollmentRegistrationError(
-      "limite-alunos-ativos",
-      `O plano ${formatSchoolPlan(capacity.plan)} permite até ${capacity.maxActiveStudents} alunos ativos. ` +
-        `Hoje há ${capacity.currentActiveStudents} aluno(s) ativo(s) e esta operação excederia o limite em ${capacity.exceededBy}.`
-    );
-  }
-
-  return capacity;
+  return getActiveStudentCapacity(tx, schoolId, incomingStudents);
 }
 
 export async function createEnrollmentRegistrationInTransaction(tx: TransactionClient, input: EnrollmentRegistrationInput) {
