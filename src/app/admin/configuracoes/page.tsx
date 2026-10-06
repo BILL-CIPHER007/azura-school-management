@@ -1,8 +1,10 @@
 import type React from "react";
+import Link from "next/link";
 import { closeAcademicPeriod, closeAcademicYear, reopenAcademicPeriod } from "@/app/actions/academic";
 import { ConfirmSubmitButton } from "@/components/admin/confirm-submit-button";
 import { AdminEmptyState, AdminPageHeader, AdminSection, DefinitionList } from "@/components/admin/admin-ui";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { schoolConfig } from "@/config/school";
 import { getAcademicPeriodClosingState, isAcademicYearClosed } from "@/lib/academic-closing";
 import { auditActionLabel, auditEntityLabel } from "@/lib/admin-labels";
@@ -415,6 +417,11 @@ export default async function SettingsPage({
       <AdminSection
         title="Auditoria"
         description="Últimas ações registradas no escopo da escola. Logs são somente leitura."
+        action={
+          <Button asChild variant="secondary" size="sm">
+            <Link href="/admin/configuracoes/auditoria">Auditoria completa</Link>
+          </Button>
+        }
       >
         {settings.auditLogs.length ? (
           <div className="overflow-x-auto">

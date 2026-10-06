@@ -8,6 +8,7 @@ import { z } from "zod";
 import { getDemoPassword, schoolConfig } from "@/config/school";
 import { announcementCanUseClassroom, announcementRequiresClassroom } from "@/lib/announcements";
 import { findAcademicPeriodForDate, getAcademicPeriodClosingState, isAcademicPeriodClosed } from "@/lib/academic-closing";
+import { buildAuditDiff, recordAuditLog } from "@/lib/audit";
 import { calendarDateFromInput, calendarDateTimeFromInput } from "@/lib/calendar-events";
 import {
   initialStudentCsvImportState,
@@ -203,19 +204,29 @@ export async function closeAcademicPeriod(formData: FormData) {
     });
   }
 
-  await prisma.academicPeriod.update({
-    where: { id: period.id },
-    data: { closedAt: new Date() }
-  });
+  const closedAt = new Date();
+  await prisma.$transaction(async (tx) => {
+    await tx.academicPeriod.update({
+      where: { id: period.id },
+      data: { closedAt }
+    });
 
-  await prisma.auditLog.create({
-    data: {
+    await recordAuditLog(tx, {
       schoolId: session.schoolId,
-      userId: session.id,
+      actor: session,
+      source: "ADMIN",
       action: "academic_period.closed",
       entity: "AcademicPeriod",
-      entityId: period.id
-    }
+      entityId: period.id,
+      before: { closedAt: period.closedAt, isClosed: Boolean(period.closedAt) },
+      after: { closedAt, isClosed: true },
+      metadata: {
+        periodName: period.name,
+        academicYearId: period.academicYearId,
+        academicYear: period.academicYear.year,
+        missingGradeTasks
+      }
+    });
   });
 
   revalidatePath("/admin/configuracoes");
@@ -235,19 +246,27 @@ export async function reopenAcademicPeriod(formData: FormData) {
     redirectWithStatus("/admin/configuracoes", { erro: "ano-encerrado" });
   }
 
-  await prisma.academicPeriod.update({
-    where: { id: period.id },
-    data: { closedAt: null }
-  });
+  await prisma.$transaction(async (tx) => {
+    await tx.academicPeriod.update({
+      where: { id: period.id },
+      data: { closedAt: null }
+    });
 
-  await prisma.auditLog.create({
-    data: {
+    await recordAuditLog(tx, {
       schoolId: session.schoolId,
-      userId: session.id,
+      actor: session,
+      source: "ADMIN",
       action: "academic_period.reopened",
       entity: "AcademicPeriod",
-      entityId: period.id
-    }
+      entityId: period.id,
+      before: { closedAt: period.closedAt, isClosed: Boolean(period.closedAt) },
+      after: { closedAt: null, isClosed: false },
+      metadata: {
+        periodName: period.name,
+        academicYearId: period.academicYearId,
+        academicYear: period.academicYear.year
+      }
+    });
   });
 
   revalidatePath("/admin/configuracoes");
@@ -272,22 +291,30 @@ export async function closeAcademicYear(formData: FormData) {
     redirectWithStatus("/admin/configuracoes", { erro: "periodos-abertos", total: String(openPeriods.length) });
   }
 
-  await prisma.academicYear.update({
-    where: { id: academicYear.id },
-    data: {
-      closedAt: new Date(),
-      isActive: false
-    }
-  });
+  const yearClosedAt = new Date();
+  await prisma.$transaction(async (tx) => {
+    await tx.academicYear.update({
+      where: { id: academicYear.id },
+      data: {
+        closedAt: yearClosedAt,
+        isActive: false
+      }
+    });
 
-  await prisma.auditLog.create({
-    data: {
+    await recordAuditLog(tx, {
       schoolId: session.schoolId,
-      userId: session.id,
+      actor: session,
+      source: "ADMIN",
       action: "academic_year.closed",
       entity: "AcademicYear",
-      entityId: academicYear.id
-    }
+      entityId: academicYear.id,
+      before: { closedAt: academicYear.closedAt, isActive: academicYear.isActive },
+      after: { closedAt: yearClosedAt, isActive: false },
+      metadata: {
+        academicYear: academicYear.year,
+        periods: academicYear.periods.length
+      }
+    });
   });
 
   revalidatePath("/admin/configuracoes");
@@ -592,13 +619,17 @@ export async function confirmStudentCsvImport(
         createdIds.push(result.enrollmentId);
       }
 
-      await tx.auditLog.create({
-        data: {
-          schoolId: session.schoolId,
-          userId: session.id,
-          action: "student_import.completed",
-          entity: "Enrollment",
-          entityId: createdIds[0] ?? "student-import"
+      await recordAuditLog(tx, {
+        schoolId: session.schoolId,
+        actor: session,
+        source: "ADMIN",
+        action: "student_import.completed",
+        entity: "Enrollment",
+        entityId: createdIds[0] ?? "student-import",
+        metadata: {
+          totalRows: rows.length,
+          createdRows: createdIds.length,
+          firstEnrollmentId: createdIds[0] ?? null
         }
       });
 
@@ -691,13 +722,19 @@ export async function createGuardian(formData: FormData) {
       }
     });
 
-    await tx.auditLog.create({
-      data: {
-        schoolId: session.schoolId,
-        userId: session.id,
-        action: "guardian.created",
-        entity: "Guardian",
-        entityId: guardian.id
+    await recordAuditLog(tx, {
+      schoolId: session.schoolId,
+      actor: session,
+      source: "ADMIN",
+      action: "guardian.created",
+      entity: "Guardian",
+      entityId: guardian.id,
+      after: {
+        fullName: guardian.fullName,
+        cpf: guardian.cpf,
+        email: guardian.email,
+        phone: guardian.phone,
+        relation: guardian.relation
       }
     });
 
@@ -782,13 +819,17 @@ export async function createTeacherAssignment(formData: FormData) {
     }
   });
 
-  await prisma.auditLog.create({
-    data: {
-      schoolId: session.schoolId,
-      userId: session.id,
-      action: "teacher_assignment.created",
-      entity: "TeacherSubject",
-      entityId: assignment.id
+  await recordAuditLog(prisma, {
+    schoolId: session.schoolId,
+    actor: session,
+    source: "ADMIN",
+    action: "teacher_assignment.created",
+    entity: "TeacherSubject",
+    entityId: assignment.id,
+    after: {
+      teacherId: parsed.teacherId,
+      classroomId: parsed.classroomId,
+      subjectId: parsed.subjectId
     }
   });
 
@@ -838,14 +879,22 @@ export async function removeTeacherAssignment(formData: FormData) {
     where: { id: assignment.id }
   });
 
-  await prisma.auditLog.create({
-    data: {
-      schoolId: session.schoolId,
-      userId: session.id,
-      action: "teacher_assignment.deleted",
-      entity: "TeacherSubject",
-      entityId: assignment.id
-    }
+  await recordAuditLog(prisma, {
+    schoolId: session.schoolId,
+    actor: session,
+    source: "ADMIN",
+    action: "teacher_assignment.deleted",
+    entity: "TeacherSubject",
+    entityId: assignment.id,
+    before: {
+      teacherId: assignment.teacherId,
+      teacherName: assignment.teacher.fullName,
+      classroomId: assignment.classroomId,
+      classroomName: assignment.classroom.name,
+      subjectId: assignment.subjectId,
+      subjectName: assignment.subject.name
+    },
+    metadata: { gradeCount, attendanceCount }
   });
 
   revalidateAssignmentAdminPaths(assignment.teacherId, assignment.classroomId);
@@ -898,12 +947,33 @@ export async function saveGrades(formData: FormData) {
         classroomId,
         academicYearId: assignment.classroom.academicYearId,
         status: "ACTIVE"
-      }
+      },
+      include: { student: { select: { id: true, fullName: true } } }
     });
     const av1 = gradeValue.parse(formData.get(`av1-${enrollmentId}`));
     const av2 = gradeValue.parse(formData.get(`av2-${enrollmentId}`));
     const assignmentScore = gradeValue.parse(formData.get(`assignment-${enrollmentId}`));
     const average = Number(((av1 + av2 + assignmentScore) / 3).toFixed(1));
+
+    const gradeKey = {
+      schoolId_enrollmentId_subjectId_academicPeriodId: {
+        schoolId: session.schoolId,
+        enrollmentId: enrollment.id,
+        subjectId,
+        academicPeriodId: periodId
+      }
+    };
+    const previousGrade = await prisma.grade.findUnique({
+      where: gradeKey,
+      select: { id: true, av1: true, av2: true, assignment: true, average: true, teacherId: true }
+    });
+    const nextGradeState = {
+      av1,
+      av2,
+      assignment: assignmentScore,
+      average
+    };
+    const gradeDiff = buildAuditDiff(previousGrade, nextGradeState, ["av1", "av2", "assignment", "average"]);
 
     const grade = await prisma.grade.upsert({
       where: {
@@ -934,15 +1004,28 @@ export async function saveGrades(formData: FormData) {
       }
     });
 
-    await prisma.auditLog.create({
-      data: {
+    if (gradeDiff.changedFields.length) {
+      await recordAuditLog(prisma, {
         schoolId: session.schoolId,
-        userId: session.id,
-        action: "grade.upserted",
+        actor: session,
+        source: "PROFESSOR",
+        action: previousGrade ? "grade.updated" : "grade.created",
         entity: "Grade",
-        entityId: grade.id
-      }
-    });
+        entityId: grade.id,
+        before: gradeDiff.before,
+        after: gradeDiff.after,
+        metadata: {
+          changedFields: gradeDiff.changedFields,
+          studentId: enrollment.student.id,
+          studentName: enrollment.student.fullName,
+          enrollmentId: enrollment.id,
+          classroomId,
+          subjectId,
+          academicPeriodId: periodId,
+          teacherId: teacher.id
+        }
+      });
+    }
   }
 
   revalidatePath(`/professor/turmas/${classroomId}`);
@@ -995,6 +1078,30 @@ export async function saveAttendance(formData: FormData) {
     const status = z
       .enum(["PRESENT", "ABSENT", "JUSTIFIED"])
       .parse(formData.get(`status-${enrollmentId}`));
+    const enrollment = await prisma.enrollment.findFirstOrThrow({
+      where: {
+        id: enrollmentId,
+        schoolId: session.schoolId,
+        classroomId,
+        academicYearId: assignment.classroom.academicYearId,
+        status: "ACTIVE"
+      },
+      include: { student: { select: { id: true, fullName: true } } }
+    });
+    const attendanceKey = {
+      schoolId_enrollmentId_subjectId_date: {
+        schoolId: session.schoolId,
+        enrollmentId,
+        subjectId,
+        date
+      }
+    };
+    const previousAttendance = await prisma.attendance.findUnique({
+      where: attendanceKey,
+      select: { id: true, status: true }
+    });
+    const attendanceDiff = buildAuditDiff(previousAttendance, { status }, ["status"]);
+
     const attendance = await prisma.attendance.upsert({
       where: {
         schoolId_enrollmentId_subjectId_date: {
@@ -1015,15 +1122,28 @@ export async function saveAttendance(formData: FormData) {
       update: { status }
     });
 
-    await prisma.auditLog.create({
-      data: {
+    if (attendanceDiff.changedFields.length) {
+      await recordAuditLog(prisma, {
         schoolId: session.schoolId,
-        userId: session.id,
-        action: "attendance.upserted",
+        actor: session,
+        source: "PROFESSOR",
+        action: previousAttendance ? "attendance.updated" : "attendance.created",
         entity: "Attendance",
-        entityId: attendance.id
-      }
-    });
+        entityId: attendance.id,
+        before: attendanceDiff.before,
+        after: attendanceDiff.after,
+        metadata: {
+          changedFields: attendanceDiff.changedFields,
+          studentId: enrollment.student.id,
+          studentName: enrollment.student.fullName,
+          enrollmentId,
+          classroomId,
+          subjectId,
+          date: dateValue,
+          teacherId: teacher.id
+        }
+      });
+    }
   }
 
   revalidatePath(`/professor/turmas/${classroomId}`);
@@ -1073,6 +1193,21 @@ export async function saveClassDiaryEntry(formData: FormData) {
     );
   }
 
+  const previousEntry = await prisma.classDiaryEntry.findUnique({
+    where: {
+      schoolId_classroomId_subjectId_teacherId_date: {
+        schoolId: session.schoolId,
+        classroomId,
+        subjectId,
+        teacherId: teacher.id,
+        date
+      }
+    },
+    select: { id: true, content: true, notes: true }
+  });
+  const nextEntryState = { content, notes: notes || null };
+  const diaryDiff = buildAuditDiff(previousEntry, nextEntryState, ["content", "notes"]);
+
   const entry = await prisma.classDiaryEntry.upsert({
     where: {
       schoolId_classroomId_subjectId_teacherId_date: {
@@ -1098,15 +1233,25 @@ export async function saveClassDiaryEntry(formData: FormData) {
     }
   });
 
-  await prisma.auditLog.create({
-    data: {
+  if (diaryDiff.changedFields.length) {
+    await recordAuditLog(prisma, {
       schoolId: session.schoolId,
-      userId: session.id,
-      action: "class_diary.upserted",
+      actor: session,
+      source: "PROFESSOR",
+      action: previousEntry ? "class_diary.updated" : "class_diary.created",
       entity: "ClassDiaryEntry",
-      entityId: entry.id
-    }
-  });
+      entityId: entry.id,
+      before: diaryDiff.before,
+      after: diaryDiff.after,
+      metadata: {
+        changedFields: diaryDiff.changedFields,
+        classroomId,
+        subjectId,
+        teacherId: teacher.id,
+        date: dateValue
+      }
+    });
+  }
 
   revalidatePath(`/professor/turmas/${classroomId}`);
   revalidatePath(`/admin/turmas/${classroomId}`);
@@ -1147,8 +1292,17 @@ export async function createSubject(formData: FormData) {
   }
 
   try {
-    await prisma.subject.create({
+    const subject = await prisma.subject.create({
       data: { schoolId: session.schoolId, name, code }
+    });
+    await recordAuditLog(prisma, {
+      schoolId: session.schoolId,
+      actor: session,
+      source: "ADMIN",
+      action: "subject.created",
+      entity: "Subject",
+      entityId: subject.id,
+      after: { name: subject.name, code: subject.code }
     });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
@@ -1183,7 +1337,7 @@ export async function createAnnouncement(formData: FormData) {
     redirectWithStatus("/admin/comunicados", { erro: "turma-obrigatoria" });
   }
 
-  await prisma.announcement.create({
+  const announcement = await prisma.announcement.create({
     data: {
       schoolId: session.schoolId,
       authorId: session.id,
@@ -1191,6 +1345,22 @@ export async function createAnnouncement(formData: FormData) {
       content: data.content,
       audience: data.audience,
       classroomId
+    }
+  });
+  await recordAuditLog(prisma, {
+    schoolId: session.schoolId,
+    actor: session,
+    source: "ADMIN",
+    action: "announcement.created",
+    entity: "Announcement",
+    entityId: announcement.id,
+    after: {
+      title: announcement.title,
+      audience: announcement.audience,
+      classroomId: announcement.classroomId
+    },
+    metadata: {
+      publishedAt: announcement.publishedAt
     }
   });
   revalidatePath("/admin/comunicados");
@@ -1238,7 +1408,7 @@ export async function createCalendarEvent(formData: FormData) {
     where: { id: data.academicYearId, schoolId: session.schoolId }
   });
 
-  await prisma.calendarEvent.create({
+  const calendarEvent = await prisma.calendarEvent.create({
     data: {
       schoolId: session.schoolId,
       academicYearId: data.academicYearId,
@@ -1249,6 +1419,22 @@ export async function createCalendarEvent(formData: FormData) {
       startTime,
       endTime,
       endsAt: endTime ? calendarDateTimeFromInput(data.startsAt, endTime) : null
+    }
+  });
+  await recordAuditLog(prisma, {
+    schoolId: session.schoolId,
+    actor: session,
+    source: "ADMIN",
+    action: "calendar_event.created",
+    entity: "CalendarEvent",
+    entityId: calendarEvent.id,
+    after: {
+      title: calendarEvent.title,
+      type: calendarEvent.type,
+      startsAt: calendarEvent.startsAt,
+      startTime: calendarEvent.startTime,
+      endTime: calendarEvent.endTime,
+      academicYearId: calendarEvent.academicYearId
     }
   });
 

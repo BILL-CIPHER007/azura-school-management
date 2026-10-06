@@ -1,5 +1,6 @@
 import type { SessionUser } from "@/lib/session";
 import { buildAcademicHistoryPdf, buildEnrollmentDeclarationPdf, buildReportCardPdf } from "@/lib/academic-documents";
+import { auditSourceFromRole, recordAuditLog } from "@/lib/audit";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { buildGradeRows } from "@/lib/student-academics";
@@ -80,6 +81,19 @@ export async function GET(request: Request, { params }: { params: Promise<{ tipo
   if (!data) return responseError("Aluno não encontrado.", 404);
 
   if (tipo === "historico") {
+    await recordAuditLog(prisma, {
+      schoolId: session.schoolId,
+      actor: session,
+      source: auditSourceFromRole(session.role),
+      action: "document.generated",
+      entity: "Student",
+      entityId: studentId,
+      metadata: {
+        documentType: "historico",
+        studentId,
+        studentName: data.student.fullName
+      }
+    });
     return pdfResponse(buildAcademicHistoryPdf({ schoolName: data.student.school.name, history: data.history }));
   }
 
@@ -92,6 +106,21 @@ export async function GET(request: Request, { params }: { params: Promise<{ tipo
     if (enrollment.status !== "ACTIVE") {
       return responseError("Declaração disponível apenas para matrícula ativa.", 409);
     }
+
+    await recordAuditLog(prisma, {
+      schoolId: session.schoolId,
+      actor: session,
+      source: auditSourceFromRole(session.role),
+      action: "document.generated",
+      entity: "Enrollment",
+      entityId: enrollment.id,
+      metadata: {
+        documentType: "declaracao-matricula",
+        studentId,
+        studentName: data.student.fullName,
+        academicYear: enrollment.academicYear.year
+      }
+    });
 
     return pdfResponse(
       buildEnrollmentDeclarationPdf({
@@ -112,6 +141,22 @@ export async function GET(request: Request, { params }: { params: Promise<{ tipo
   const filteredGrades = enrollment.grades.filter((grade) => selectedPeriod === "todos" || grade.academicPeriod.id === selectedPeriod);
   const summary = summarizeEnrollment(enrollment, { isFinal: Boolean(enrollment.academicYear.closedAt) });
   const rows = buildGradeRows(filteredGrades, summary.attendanceRate, { isFinal: selectedContextEnded });
+
+  await recordAuditLog(prisma, {
+    schoolId: session.schoolId,
+    actor: session,
+    source: auditSourceFromRole(session.role),
+    action: "document.generated",
+    entity: "Enrollment",
+    entityId: enrollment.id,
+    metadata: {
+      documentType: "boletim",
+      studentId,
+      studentName: data.student.fullName,
+      academicYear: enrollment.academicYear.year,
+      period: selectedPeriod === "todos" ? "todos" : visiblePeriods[0]?.name ?? selectedPeriod
+    }
+  });
 
   return pdfResponse(
     buildReportCardPdf({

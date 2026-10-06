@@ -24,6 +24,7 @@ import {
   type AsaasPixQrCode,
   type AsaasWebhookPayload
 } from "@/lib/asaas-client";
+import { recordAuditLog } from "@/lib/audit";
 import { hasCommercialFeature } from "@/lib/commercial-plans";
 import {
   assertCollectionMessagePrivacy,
@@ -418,13 +419,19 @@ export async function createCharge(schoolId: string, userId: string, input: Char
       }
     });
 
-    await tx.auditLog.create({
-      data: {
-        schoolId,
-        userId,
-        action: "financial_charge.created",
-        entity: "Charge",
-        entityId: charge.id
+    await recordFinancialAudit(tx, {
+      schoolId,
+      userId,
+      action: "financial_charge.created",
+      entity: "Charge",
+      entityId: charge.id,
+      after: {
+        studentId: charge.studentId,
+        guardianId: charge.guardianId,
+        reference: charge.reference,
+        amount: charge.amount,
+        dueDate: charge.dueDate,
+        status: charge.status
       }
     });
 
@@ -509,14 +516,13 @@ export async function generateExternalPayment(
         }
       });
 
-      await tx.auditLog.create({
-        data: {
-          schoolId,
-          userId,
-          action: "financial_charge.external_payment_created",
-          entity: "Charge",
-          entityId: charge.id
-        }
+      await recordFinancialAudit(tx, {
+        schoolId,
+        userId,
+        action: "financial_charge.external_payment_created",
+        entity: "Charge",
+        entityId: charge.id,
+        metadata: { billingType, provider: "ASAAS" }
       });
 
       await recordFinancialEvent(tx, {
@@ -584,13 +590,23 @@ export async function updateCharge(schoolId: string, userId: string, input: Char
       }
     });
 
-    await tx.auditLog.create({
-      data: {
-        schoolId,
-        userId,
-        action: "financial_charge.updated",
-        entity: "Charge",
-        entityId: charge.id
+    await recordFinancialAudit(tx, {
+      schoolId,
+      userId,
+      action: "financial_charge.updated",
+      entity: "Charge",
+      entityId: charge.id,
+      before: {
+        reference: charge.reference,
+        description: charge.description,
+        amount: charge.amount,
+        dueDate: charge.dueDate
+      },
+      after: {
+        reference: parsed.reference,
+        description: parsed.description,
+        amount: parsed.amount,
+        dueDate: parsed.dueDate
       }
     });
 
@@ -625,14 +641,14 @@ export async function markChargePaid(schoolId: string, userId: string, chargeId:
       data: { status: "PAID", paidAt: new Date() }
     });
 
-    await tx.auditLog.create({
-      data: {
-        schoolId,
-        userId,
-        action: "financial_charge.manual_payment",
-        entity: "Charge",
-        entityId: charge.id
-      }
+    await recordFinancialAudit(tx, {
+      schoolId,
+      userId,
+      action: "financial_charge.manual_payment",
+      entity: "Charge",
+      entityId: charge.id,
+      before: { status: charge.status, paidAt: charge.paidAt },
+      after: { status: "PAID", paidAt: new Date() }
     });
 
     await recordFinancialEvent(tx, {
@@ -664,14 +680,14 @@ export async function cancelCharge(schoolId: string, userId: string, chargeId: s
         data: { status: "CANCELED", canceledAt: new Date() }
       });
 
-      await tx.auditLog.create({
-        data: {
-          schoolId,
-          userId,
-          action: "financial_charge.canceled",
-          entity: "Charge",
-          entityId: charge.id
-        }
+      await recordFinancialAudit(tx, {
+        schoolId,
+        userId,
+        action: "financial_charge.canceled",
+        entity: "Charge",
+        entityId: charge.id,
+        before: { status: charge.status, canceledAt: charge.canceledAt },
+        after: { status: "CANCELED", canceledAt: new Date() }
       });
 
       await recordFinancialEvent(tx, {
@@ -755,14 +771,15 @@ export async function cancelCharge(schoolId: string, userId: string, chargeId: s
         }
       });
 
-      await tx.auditLog.create({
-        data: {
-          schoolId,
-          userId,
-          action: "financial_charge.external_canceled",
-          entity: "Charge",
-          entityId: charge.id
-        }
+      await recordFinancialAudit(tx, {
+        schoolId,
+        userId,
+        action: "financial_charge.external_canceled",
+        entity: "Charge",
+        entityId: charge.id,
+        before: { status: charge.status, externalStatus: charge.externalStatus },
+        after: { status: "CANCELED", externalStatus: "DELETED" },
+        metadata: { provider: "ASAAS" }
       });
 
       await recordFinancialEvent(tx, {
@@ -821,14 +838,13 @@ export async function syncChargeWithAsaas(schoolId: string, userId: string, char
         message: "Conciliacao individual executada pela secretaria."
       });
 
-      await tx.auditLog.create({
-        data: {
-          schoolId,
-          userId,
-          action: "financial_charge.reconciled",
-          entity: "Charge",
-          entityId: charge.id
-        }
+      await recordFinancialAudit(tx, {
+        schoolId,
+        userId,
+        action: "financial_charge.reconciled",
+        entity: "Charge",
+        entityId: charge.id,
+        metadata: { provider: "ASAAS" }
       });
     });
   } catch (error) {
@@ -911,14 +927,13 @@ export async function requestChargeRefund(schoolId: string, userId: string, char
         }
       });
 
-      await tx.auditLog.create({
-        data: {
-          schoolId,
-          userId,
-          action: "financial_charge.refund_requested",
-          entity: "Charge",
-          entityId: charge.id
-        }
+      await recordFinancialAudit(tx, {
+        schoolId,
+        userId,
+        action: "financial_charge.refund_requested",
+        entity: "Charge",
+        entityId: charge.id,
+        metadata: { provider: "ASAAS" }
       });
 
       await recordFinancialEvent(tx, {
@@ -1781,13 +1796,20 @@ export async function saveBillingRule(schoolId: string, userId: string, input: B
           }
         });
 
-    await tx.auditLog.create({
-      data: {
-        schoolId,
-        userId,
-        action: input.ruleId ? "billing_rule.updated" : "billing_rule.created",
-        entity: "BillingRule",
-        entityId: rule.id
+    await recordFinancialAudit(tx, {
+      schoolId,
+      userId,
+      action: input.ruleId ? "billing_rule.updated" : "billing_rule.created",
+      entity: "BillingRule",
+      entityId: rule.id,
+      after: {
+        name: rule.name,
+        amount: rule.amount,
+        dueDay: rule.dueDay,
+        classroomId: rule.classroomId,
+        targetScope: rule.targetScope,
+        isActive: rule.isActive,
+        autoGenerate: rule.autoGenerate
       }
     });
 
@@ -1888,13 +1910,18 @@ export async function generateBillingBatch(schoolId: string, userId: string | nu
       }
     });
 
-    await tx.auditLog.create({
-      data: {
-        schoolId,
-        userId,
-        action: "billing_batch.generated",
-        entity: "BillingBatch",
-        entityId: batch.id
+    await recordFinancialAudit(tx, {
+      schoolId,
+      userId,
+      action: "billing_batch.generated",
+      entity: "BillingBatch",
+      entityId: batch.id,
+      metadata: {
+        billingRuleId: rule.id,
+        competence: preview.competence,
+        generatedCharges: generatedCharges.length,
+        existingCharges: preview.summary.existingCharges,
+        skippedStudents: preview.summary.skippedStudents
       }
     });
 
@@ -1905,6 +1932,33 @@ export async function generateBillingBatch(schoolId: string, userId: string | nu
       existing: preview.summary.existingCharges,
       total: generatedCharges.length
     };
+  });
+}
+
+async function recordFinancialAudit(
+  tx: TransactionClient | typeof prisma,
+  input: {
+    schoolId: string;
+    userId?: string | null;
+    action: string;
+    entity: string;
+    entityId: string;
+    source?: "ADMIN" | "WEBHOOK" | "SYSTEM" | "CRON";
+    before?: unknown;
+    after?: unknown;
+    metadata?: unknown;
+  }
+) {
+  await recordAuditLog(tx, {
+    schoolId: input.schoolId,
+    actor: input.userId ? { id: input.userId, role: "ADMIN" } : null,
+    source: input.source ?? (input.userId ? "ADMIN" : "SYSTEM"),
+    action: input.action,
+    entity: input.entity,
+    entityId: input.entityId,
+    before: input.before,
+    after: input.after,
+    metadata: input.metadata
   });
 }
 
@@ -2216,13 +2270,19 @@ export async function emitBillingBatchPayments(
     }
   }
 
-  await prisma.auditLog.create({
-    data: {
-      schoolId,
-      userId,
-      action: input.billingType === "PIX" ? "billing_batch.pix_issued" : "billing_batch.boleto_issued",
-      entity: "BillingRule",
-      entityId: rule.id
+  await recordFinancialAudit(prisma, {
+    schoolId,
+    userId,
+    action: input.billingType === "PIX" ? "billing_batch.pix_issued" : "billing_batch.boleto_issued",
+    entity: "BillingRule",
+    entityId: rule.id,
+    metadata: {
+      billingRuleId: rule.id,
+      competence: input.competence,
+      billingType: input.billingType,
+      emitted,
+      failed,
+      skipped
     }
   });
 
@@ -2409,14 +2469,16 @@ export async function processAsaasWebhook(payload: AsaasWebhookPayload) {
         });
 
         if (nextStatus && nextStatus !== charge.status) {
-          await tx.auditLog.create({
-            data: {
-              schoolId: charge.schoolId,
-              userId: null,
-              action: `financial_charge.webhook_${nextStatus.toLowerCase()}`,
-              entity: "Charge",
-              entityId: charge.id
-            }
+          await recordFinancialAudit(tx, {
+            schoolId: charge.schoolId,
+            userId: null,
+            source: "WEBHOOK",
+            action: `financial_charge.webhook_${nextStatus.toLowerCase()}`,
+            entity: "Charge",
+            entityId: charge.id,
+            before: { status: charge.status, externalStatus: charge.externalStatus },
+            after: { status: nextStatus, externalStatus },
+            metadata: { externalEventId, eventType }
           });
         }
       });

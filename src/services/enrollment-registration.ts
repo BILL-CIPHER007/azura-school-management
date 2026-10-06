@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import type { Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { getDemoPassword, schoolConfig } from "@/config/school";
+import { recordAuditLog } from "@/lib/audit";
 import { checkActiveStudentLimit, formatSchoolPlan } from "@/lib/commercial-plans";
 import { prisma } from "@/lib/prisma";
 
@@ -301,13 +302,27 @@ export async function createEnrollmentRegistrationInTransaction(tx: TransactionC
     }
   });
 
-  await tx.auditLog.create({
-    data: {
-      schoolId: input.schoolId,
-      userId: input.userId,
-      action: input.auditAction ?? "enrollment.created",
-      entity: "Enrollment",
-      entityId: enrollment.id
+  await recordAuditLog(tx, {
+    schoolId: input.schoolId,
+    actor: { id: input.userId, role: "ADMIN" },
+    source: "ADMIN",
+    action: input.auditAction ?? "enrollment.created",
+    entity: "Enrollment",
+    entityId: enrollment.id,
+    after: {
+      enrollmentId: enrollment.id,
+      registration: enrollment.registration,
+      status: enrollment.status,
+      enrolledAt: enrollment.enrolledAt,
+      studentId: student.id,
+      studentName: student.fullName,
+      studentCpf: student.cpf,
+      studentEmail: student.email,
+      guardianId,
+      classroomId: classroom.id,
+      classroomName: classroom.name,
+      academicYearId: academicYear.id,
+      academicYear: academicYear.year
     }
   });
 

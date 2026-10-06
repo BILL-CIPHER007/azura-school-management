@@ -47,6 +47,17 @@ enum FinancialEventSource {
   SYSTEM
 }
 
+enum AuditSource {
+  ADMIN
+  PROFESSOR
+  ALUNO
+  RESPONSAVEL
+  SYSTEM
+  CRON
+  WEBHOOK
+  PROVIDER
+}
+
 enum CollectionActionType {
   CONTACT
   CONTACTED
@@ -642,17 +653,25 @@ model CalendarEvent {
 }
 
 model AuditLog {
-  id        String   @id @default(cuid())
+  id        String      @id @default(cuid())
   schoolId  String
   userId    String?
+  actorRole UserRole?
   action    String
   entity    String
   entityId  String
-  createdAt DateTime @default(now())
-  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  source    AuditSource @default(SYSTEM)
+  before    Json?
+  after     Json?
+  metadata  Json?
+  createdAt DateTime    @default(now())
+  school    School      @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  user      User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([schoolId, createdAt])
+  @@index([schoolId, action, createdAt])
+  @@index([schoolId, entity, createdAt])
+  @@index([schoolId, source, createdAt])
 }
 
 model AsaasWebhookEvent {

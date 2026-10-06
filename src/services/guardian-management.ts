@@ -1,4 +1,5 @@
 import { schoolConfig } from "@/config/school";
+import { buildAuditDiff, recordAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import { optionalText } from "@/services/enrollment-registration";
 
@@ -65,7 +66,7 @@ export async function updateGuardianRecord(input: UpdateGuardianInput) {
 
   const guardian = await prisma.guardian.findFirst({
     where: { id: input.guardianId, schoolId: input.schoolId },
-    select: { id: true, userId: true }
+    select: { id: true, userId: true, fullName: true, cpf: true, phone: true, email: true }
   });
 
   if (!guardian) {
@@ -131,14 +132,32 @@ export async function updateGuardianRecord(input: UpdateGuardianInput) {
         });
       }
 
-      await tx.auditLog.create({
-        data: {
-          schoolId: input.schoolId,
-          userId: input.actorUserId,
-          action: "guardian.updated",
-          entity: "Guardian",
-          entityId: guardian.id
-        }
+      const diff = buildAuditDiff(
+        {
+          fullName: guardian.fullName,
+          cpf: guardian.cpf,
+          phone: guardian.phone,
+          email: guardian.email
+        },
+        {
+          fullName: guardianName,
+          cpf: guardianCpf ?? null,
+          phone: guardianPhone ?? null,
+          email: guardianEmail ?? null
+        },
+        ["fullName", "cpf", "phone", "email"]
+      );
+
+      await recordAuditLog(tx, {
+        schoolId: input.schoolId,
+        actor: { id: input.actorUserId, role: "ADMIN" },
+        source: "ADMIN",
+        action: "guardian.updated",
+        entity: "Guardian",
+        entityId: guardian.id,
+        before: diff.before,
+        after: diff.after,
+        metadata: { changedFields: diff.changedFields }
       });
     },
     { timeout: 10000 }
