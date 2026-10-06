@@ -89,12 +89,12 @@ export const schoolConfig: SchoolConfig = {
   slug: "azura",
   descriptor: productDescriptor,
   fullName: `${productName} — ${productDescriptor}`,
-  description: "Plataforma integrada para gestão acadêmica, comunicação e acompanhamento escolar.",
+  description: "Plataforma integrada para gestão acadêmica, comunicação, acompanhamento escolar e gestão financeira.",
   landingTitle: `${productName} — ${productDescriptor}`,
   landingSubtitle: "Gestão escolar, acompanhamento acadêmico e comunicação em um só lugar.",
   metadata: {
     title: `${productName} | ${productDescriptor}`,
-    description: "Plataforma integrada para gestão acadêmica, comunicação e acompanhamento escolar."
+    description: "Plataforma integrada para gestão acadêmica, comunicação, acompanhamento escolar e gestão financeira."
   },
   branding: {
     logos: {
