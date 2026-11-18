@@ -1,6 +1,7 @@
 import type { SessionUser } from "@/lib/session";
 import { buildAcademicHistoryPdf, buildEnrollmentDeclarationPdf, buildReportCardPdf } from "@/lib/academic-documents";
 import { auditSourceFromRole, recordAuditLog } from "@/lib/audit";
+import { canDownload, documentTypes, getDocumentPolicies, isDocumentType } from "@/lib/document-policy";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { buildGradeRows } from "@/lib/student-academics";
@@ -8,14 +9,6 @@ import { getStudentAcademicDocumentData, summarizeEnrollment } from "@/services/
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const DOCUMENT_TYPES = ["historico", "boletim", "declaracao-matricula"] as const;
-
-type DocumentType = (typeof DOCUMENT_TYPES)[number];
-
-function isDocumentType(value: string): value is DocumentType {
-  return DOCUMENT_TYPES.includes(value as DocumentType);
-}
 
 function responseError(message: string, status: number) {
   return Response.json({ error: message }, { status });
@@ -77,6 +70,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ tipo
   const studentId = await resolveStudentId(session, url.searchParams.get("studentId"));
   if (!studentId) return responseError("Aluno não encontrado para este acesso.", session.role === "ADMIN" ? 400 : 403);
 
+  if (session.role !== "ADMIN") {
+    const policies = await getDocumentPolicies(session.schoolId);
+    if (!canDownload(session.role, policies[documentTypes[tipo].type])) {
+      return responseError("Solicite este documento à secretaria.", 403);
+    }
+  }
   const data = await getStudentAcademicDocumentData(session.schoolId, studentId);
   if (!data) return responseError("Aluno não encontrado.", 404);
 

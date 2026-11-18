@@ -3,6 +3,7 @@ import { StudentSwitcher } from "@/components/guardian/student-switcher";
 import { GuardianEmptyState, GuardianPageHeader } from "@/components/guardian/guardian-ui";
 import { Button } from "@/components/ui/button";
 import { guardianFirstName, guardianShiftLabel } from "@/lib/guardian-labels";
+import { canDownload, getDocumentPolicies } from "@/lib/document-policy";
 import { requireSession } from "@/lib/auth";
 import { getGuardianAcademicHistory } from "@/services/school-data";
 import Link from "next/link";
@@ -16,6 +17,7 @@ export default async function GuardianAcademicHistoryPage({
 }) {
   const query = await searchParams;
   const session = await requireSession(["RESPONSAVEL"]);
+  const policies = await getDocumentPolicies(session.schoolId);
   const portal = await getGuardianAcademicHistory(session.schoolId, session.id, query.studentId);
   const latestEnrollment = portal.selectedStudent?.enrollments[0] ?? null;
   const classroom = latestEnrollment?.classroom;
@@ -31,12 +33,16 @@ export default async function GuardianAcademicHistoryPage({
           action={
             portal.selectedStudent ? (
               <>
-                <Button asChild variant="outline" size="sm">
-                  <Link href={`/api/documentos/declaracao-matricula${selectedStudentQuery}`}>Declaração de matrícula</Link>
-                </Button>
-                <Button asChild size="sm">
-                  <Link href={`/api/documentos/historico${selectedStudentQuery}`}>Baixar histórico</Link>
-                </Button>
+                {portal.history?.enrollments[0]?.enrollmentStatus === "ACTIVE" && canDownload(session.role, policies.DECLARACAO_MATRICULA) && (
+                  <Button asChild variant="outline" size="sm">
+                    <Link href={`/api/documentos/declaracao-matricula${selectedStudentQuery}`}>Declaração de matrícula</Link>
+                  </Button>
+                )}
+                {canDownload(session.role, policies.HISTORICO_ESCOLAR) && (
+                  <Button asChild size="sm">
+                    <Link href={`/api/documentos/historico${selectedStudentQuery}`}>Baixar histórico</Link>
+                  </Button>
+                )}
               </>
             ) : null
           }

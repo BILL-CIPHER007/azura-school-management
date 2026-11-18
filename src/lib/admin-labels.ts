@@ -117,6 +117,7 @@ export function auditActionLabel(value: string) {
     "subject.created": "Disciplina criada",
     "announcement.created": "Comunicado publicado",
     "calendar_event.created": "Evento criado",
+    "document.policy.updated": "Permissões de documento alteradas",
     "document.generated": "Documento emitido",
     "auth.login_success": "Login realizado",
     "auth.login_failed": "Falha de login",
@@ -144,6 +145,7 @@ export function auditActionLabel(value: string) {
 
 export function auditEntityLabel(value: string) {
   const labels: Record<string, string> = {
+    DocumentPolicy: "Política de documentos",
     School: "Escola",
     Enrollment: "Matrícula",
     Guardian: "Responsável",

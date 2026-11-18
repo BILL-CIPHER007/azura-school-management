@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { StudentSwitcher } from "@/components/guardian/student-switcher";
 import { GuardianMetric, GuardianPageHeader, GuardianSection, GuardianStatusBadge } from "@/components/guardian/guardian-ui";
 import { Button } from "@/components/ui/button";
+import { canDownload, getDocumentPolicies } from "@/lib/document-policy";
 import { requireSession } from "@/lib/auth";
 import { isPassingVisibleGrade } from "@/lib/academic-rules";
 import { buildGradeRows } from "@/lib/student-academics";
@@ -21,6 +22,7 @@ export default async function GuardianReportPage({
 }) {
   const query = await searchParams;
   const session = await requireSession(["RESPONSAVEL"]);
+  const policies = await getDocumentPolicies(session.schoolId);
   const portal = await getGuardianPortal(session.schoolId, session.id, query.studentId);
   const academicYearEnded = portal.enrollment ? Boolean(portal.enrollment.academicYear.closedAt) : false;
   const summary = summarizeEnrollment(portal.enrollment, { isFinal: academicYearEnded });
@@ -67,7 +69,7 @@ export default async function GuardianReportPage({
           description={`Notas e situação acadêmica de ${guardianFirstName(portal.selectedStudent?.fullName ?? "aluno")}.`}
           eyebrow={classroom ? `${classroom.name} · ${guardianShiftLabel(classroom.shift)}` : "Aluno acompanhado"}
           action={
-            portal.selectedStudent ? (
+            portal.selectedStudent && portal.enrollment && canDownload(session.role, policies.BOLETIM) ? (
               <Button asChild size="sm">
                 <Link href={reportPdfHref}>Baixar boletim</Link>
               </Button>

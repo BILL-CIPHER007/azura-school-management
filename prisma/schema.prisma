@@ -140,7 +140,28 @@ enum CalendarEventType {
   PRAZO
 }
 
+enum DocumentType {
+  BOLETIM
+  HISTORICO_ESCOLAR
+  DECLARACAO_MATRICULA
+}
+
+model DocumentPolicy {
+  id                  String       @id @default(cuid())
+  schoolId            String
+  documentType        DocumentType
+  studentCanDownload  Boolean      @default(true)
+  guardianCanDownload Boolean      @default(true)
+  enabled             Boolean      @default(true)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  school              School       @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+
+  @@unique([schoolId, documentType])
+}
+
 model School {
+  documentPolicies          DocumentPolicy[]
   id                        String                     @id @default(cuid())
   name                      String
   slug                      String                     @unique

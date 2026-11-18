@@ -420,6 +420,12 @@ export default async function SettingsPage({
         )}
       </AdminSection>
 
+      <AdminSection title="Documentos" description="Permissões de download de documentos acadêmicos.">
+        <Button asChild variant="secondary" size="sm">
+          <Link href="/admin/configuracoes/documentos">Gerenciar permissões de download</Link>
+        </Button>
+      </AdminSection>
+
       <AdminSection
         title="Auditoria"
         description="Últimas ações registradas no escopo da escola. Logs são somente leitura."

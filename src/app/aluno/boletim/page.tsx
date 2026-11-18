@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { StudentMetric, StudentPageHeader, StudentSection, StudentStatusBadge } from "@/components/student/student-ui";
 import { Button } from "@/components/ui/button";
+import { canDownload, getDocumentPolicies } from "@/lib/document-policy";
 import { requireSession } from "@/lib/auth";
 import { isPassingVisibleGrade } from "@/lib/academic-rules";
 import { buildGradeRows } from "@/lib/student-academics";
@@ -19,6 +20,7 @@ export default async function StudentReportPage({
 }) {
   const filters = await searchParams;
   const session = await requireSession(["ALUNO"]);
+  const policies = await getDocumentPolicies(session.schoolId);
   const portal = await getStudentPortal(session.schoolId, session.id);
   const academicYearEnded = portal.enrollment ? Boolean(portal.enrollment.academicYear.closedAt) : false;
   const summary = summarizeEnrollment(portal.enrollment, { isFinal: academicYearEnded });
@@ -59,7 +61,7 @@ export default async function StudentReportPage({
         title="Boletim"
         description="Notas, médias, frequência e situação acadêmica organizadas por disciplina."
         eyebrow={portal.enrollment?.classroom.name}
-        action={
+        action={portal.enrollment && canDownload(session.role, policies.BOLETIM) &&
           <Button asChild size="sm">
             <Link href={`/api/documentos/boletim?ano=${selectedYear}&periodo=${selectedPeriod}`}>Baixar boletim</Link>
           </Button>
