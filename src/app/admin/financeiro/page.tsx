@@ -326,6 +326,9 @@ export default async function AdminFinancialPage({
                       </td>
                       <td>
                         <div className="flex flex-wrap gap-2">
+                          {charge.status === "PAID" && charge.paidAt && !charge.refundedAt ? (
+                            <Link href={`/api/documentos/recibo?chargeId=${charge.id}`} className="text-xs font-semibold text-school-primary">Baixar recibo</Link>
+                          ) : null}
                           {editable ? (
                             <details className="rounded-md border border-border bg-surface px-2 py-1">
                               <summary className="cursor-pointer list-none text-xs font-semibold text-school-primary">

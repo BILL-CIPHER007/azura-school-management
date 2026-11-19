@@ -119,6 +119,12 @@ export function auditActionLabel(value: string) {
     "calendar_event.created": "Evento criado",
     "document.policy.updated": "Permissões de documento alteradas",
     "document.generated": "Documento emitido",
+    "template.uploaded": "Modelo enviado",
+    "template.validated": "Modelo validado",
+    "template.rejected": "Modelo recusado na validação",
+    "template.activated": "Modelo ativado",
+    "template.archived": "Modelo arquivado",
+    "template.restored": "Modelo padrão restaurado",
     "auth.login_success": "Login realizado",
     "auth.login_failed": "Falha de login",
     "auth.logout": "Logout realizado",
@@ -146,6 +152,7 @@ export function auditActionLabel(value: string) {
 export function auditEntityLabel(value: string) {
   const labels: Record<string, string> = {
     DocumentPolicy: "Política de documentos",
+    DocumentTemplate: "Modelo de documento",
     School: "Escola",
     Enrollment: "Matrícula",
     Guardian: "Responsável",

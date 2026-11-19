@@ -1,4 +1,8 @@
 import type { SessionUser } from "@/lib/session";
+import { TemplateError } from "@/lib/document-template-placeholders";
+import { academic, historyData, reportData } from "@/lib/document-templates/data";
+import { issuedDocument } from "@/services/document-templates";
+import { paymentReceipt } from "@/services/payment-receipt";
 import { buildAcademicHistoryPdf, buildEnrollmentDeclarationPdf, buildReportCardPdf } from "@/lib/academic-documents";
 import { auditSourceFromRole, recordAuditLog } from "@/lib/audit";
 import { canDownload, documentTypes, getDocumentPolicies, isDocumentType } from "@/lib/document-policy";
@@ -50,23 +54,32 @@ function pdfResponse(document: { filename: string; bytes: Buffer }) {
   return new Response(new Uint8Array(document.bytes), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="${document.filename}"`,
+      "Content-Disposition": `${document.filename.startsWith("previa-") ? "inline" : "attachment"}; filename="${document.filename}"`,
       "Cache-Control": "no-store"
     }
   });
 }
 
 export async function GET(request: Request, { params }: { params: Promise<{ tipo: string }> }) {
+  try { return await generate(request, (await params).tipo); }
+  catch(error) {
+    if(error instanceof TemplateError) return responseError(error.message,422);
+    throw error;
+  }
+}
+
+async function generate(request: Request, tipo: string) {
   const session = await getSession();
   if (!session) return responseError("Acesso não autenticado.", 401);
   if (!["ADMIN", "ALUNO", "RESPONSAVEL"].includes(session.role)) {
     return responseError("Perfil sem permissão para emitir documentos acadêmicos.", 403);
   }
 
-  const { tipo } = await params;
-  if (!isDocumentType(tipo)) return responseError("Documento não encontrado.", 404);
-
   const url = new URL(request.url);
+  const preview = url.searchParams.get("modelo");
+  if (preview && session.role !== "ADMIN") return responseError("Prévia restrita à administração.",403);
+  if (tipo === "recibo") return paymentReceipt(session,url.searchParams.get("chargeId") ?? "",preview);
+  if (!isDocumentType(tipo)) return responseError("Documento não encontrado.", 404);
   const studentId = await resolveStudentId(session, url.searchParams.get("studentId"));
   if (!studentId) return responseError("Aluno não encontrado para este acesso.", session.role === "ADMIN" ? 400 : 403);
 
@@ -80,7 +93,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ tipo
   if (!data) return responseError("Aluno não encontrado.", 404);
 
   if (tipo === "historico") {
-    await recordAuditLog(prisma, {
+    if (!preview) await recordAuditLog(prisma, {
       schoolId: session.schoolId,
       actor: session,
       source: auditSourceFromRole(session.role),
@@ -93,7 +106,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ tipo
         studentName: data.student.fullName
       }
     });
-    return pdfResponse(buildAcademicHistoryPdf({ schoolName: data.student.school.name, history: data.history }));
+    return pdfResponse(await issuedDocument(session,"HISTORICO_ESCOLAR",historyData(data.student.school.name,data.history),preview,
+      () => buildAcademicHistoryPdf({ schoolName: data.student.school.name, history: data.history })));
   }
 
   const selectedYear = Number(url.searchParams.get("ano")) || data.student.enrollments[0]?.academicYear.year;
@@ -106,7 +120,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ tipo
       return responseError("Declaração disponível apenas para matrícula ativa.", 409);
     }
 
-    await recordAuditLog(prisma, {
+    if (!preview) await recordAuditLog(prisma, {
       schoolId: session.schoolId,
       actor: session,
       source: auditSourceFromRole(session.role),
@@ -122,12 +136,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ tipo
     });
 
     return pdfResponse(
-      buildEnrollmentDeclarationPdf({
+      await issuedDocument(session,"DECLARACAO_MATRICULA",{values:academic(data.student.school.name,data.student.fullName,enrollment)},preview,() => buildEnrollmentDeclarationPdf({
         schoolName: data.student.school.name,
         studentName: data.student.fullName,
         enrollment,
         guardianName: data.student.guardians[0]?.guardian.fullName
-      })
+      }))
     );
   }
 
@@ -141,7 +155,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ tipo
   const summary = summarizeEnrollment(enrollment, { isFinal: Boolean(enrollment.academicYear.closedAt) });
   const rows = buildGradeRows(filteredGrades, summary.attendanceRate, { isFinal: selectedContextEnded });
 
-  await recordAuditLog(prisma, {
+  if (!preview) await recordAuditLog(prisma, {
     schoolId: session.schoolId,
     actor: session,
     source: auditSourceFromRole(session.role),
@@ -157,8 +171,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ tipo
     }
   });
 
-  return pdfResponse(
-    buildReportCardPdf({
+  const report = {
       schoolName: data.student.school.name,
       studentName: data.student.fullName,
       enrollment,
@@ -166,7 +179,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ tipo
       rows,
       summary,
       selectedPeriodLabel: selectedPeriod === "todos" ? "Todos os bimestres" : visiblePeriods[0]?.name ?? "Período selecionado"
-    })
-  );
+  };
+  return pdfResponse(await issuedDocument(session,"BOLETIM",reportData(report),preview,()=>buildReportCardPdf(report)));
 }
 

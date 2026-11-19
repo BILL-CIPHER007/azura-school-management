@@ -1,4 +1,5 @@
 .next
+.private-documents/
 node_modules
 .env
 .env.local

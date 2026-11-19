@@ -160,7 +160,45 @@ model DocumentPolicy {
   @@unique([schoolId, documentType])
 }
 
+enum DocumentTemplateType {
+  BOLETIM
+  HISTORICO_ESCOLAR
+  DECLARACAO_MATRICULA
+  RECIBO
+}
+
+enum DocumentTemplateStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+model DocumentTemplate {
+  id            String                 @id @default(cuid())
+  schoolId      String
+  type          DocumentTemplateType
+  name          String
+  version       Int
+  status        DocumentTemplateStatus @default(DRAFT)
+  storageKey    String                 @unique
+  digest        String
+  originalName  String
+  mimeType      String
+  sizeBytes     Int
+  placeholders  String[]
+  createdById   String?
+  createdAt     DateTime               @default(now())
+  previewedAt   DateTime?
+  activatedAt   DateTime?
+  archivedAt    DateTime?
+  school        School @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  createdBy     User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([schoolId, type, version])
+}
+
 model School {
+  documentTemplates DocumentTemplate[]
   documentPolicies          DocumentPolicy[]
   id                        String                     @id @default(cuid())
   name                      String
@@ -194,6 +232,7 @@ model School {
 }
 
 model User {
+  createdDocumentTemplates DocumentTemplate[]
   id                    String                 @id @default(cuid())
   schoolId              String
   name                  String
